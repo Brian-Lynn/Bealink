@@ -1,4 +1,4 @@
-# Bealink Go Server 🚀  [中文说明 (Chinese Documentation)](README_zh.md)
+# Bealink Go Server 🚀  
 一个运行在 Windows 上的轻量级后台服务程序，允许通过局域网 HTTP 请求或 Bonjour 服务发现，远程控制你的电脑执行睡眠、关机操作，并同步剪贴板内容。
 
 > ⚠️ 注意：第一个项目，已在2台设备上稳定运行10分钟，有bug欢迎issue😅
