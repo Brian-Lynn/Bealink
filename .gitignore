@@ -1,0 +1,24 @@
+Server-win-python/Bealink 服务器项目总结.md
+Server-win-python/res/__pycache__/bark_notifier.cpython-313.pyc
+Server-win-python/res/__pycache__/bonjour_manager.cpython-313.pyc
+Server-win-python/res/__pycache__/config.cpython-313.pyc
+Server-win-python/res/__pycache__/main.cpython-313.pyc
+Server-win-python/res/__pycache__/notifications.cpython-313.pyc
+Server-win-python/res/__pycache__/power_monitor.cpython-313.pyc
+Server-win-python/res/__pycache__/system_actions.cpython-313.pyc
+Server-win-python/res/__pycache__/tray_icon_manager.cpython-313.pyc
+Server-win-python/res/__pycache__/utils.cpython-313.pyc
+Server-win-python/res/__pycache__/web_server.cpython-313.pyc
+Server-win-python/.vscode/launch.json
+Server-win-Go+AHK/InstallerSource/Output/BeaLinkInstaller.exe
+Server-win-Go+AHK/InstallerSource/AutoHotkey.exe
+Server-win-Go+AHK/InstallerSource/bealink-server-go.exe
+Server-win-Go+AHK/InstallerSource/BealinkGoServer.iss
+Server-win-Go+AHK/InstallerSource/BonjourSDKSetup.exe
+Server-win-Go+AHK/InstallerSource/icon.ico
+Server-win-Go+AHK/InstallerSource/main.go
+Server-win-Go+AHK/InstallerSource/notify.ahk
+Server-win-Go+AHK/InstallerSource/shutdown_countdown.ahk
+Server-win-Go+AHK/InstallerSource/sleep_countdown.ahk
+.vscode/launch.json
+Server-win-Go+AHK/AutoHotkey.exe
