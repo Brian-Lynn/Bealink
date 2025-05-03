@@ -1,4 +1,4 @@
-# Bealink Go Server 🚀       [中文](README_zh.md)
+# Bealink Server 🚀       [中文](README_zh.md)
 A lightweight background service program running on Windows, allowing remote control of your computer for sleep and shutdown operations, and clipboard content synchronization via LAN HTTP requests or Bonjour service discovery.
 
 > ⚠️ Note: First project, has been running stably on 2 devices for 10 minutes. Welcome issues if you find bugs 😅
