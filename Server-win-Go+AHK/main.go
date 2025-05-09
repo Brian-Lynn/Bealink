@@ -1,97 +1,107 @@
 package main
 
 import (
-	"context" // 用于 HTTP 服务器优雅关闭
+	"context"
 	"fmt"
-	"io/ioutil" // 用于读取图标文件
+	"io"
+	"io/ioutil"
 	"log"
-	"net" // 用于 IP 地址和网络接口操作
+	"net"
 	"net/http"
-	"net/url" // *** 用于 URL 解码 ***
+	"net/url"
 	"os"
-	"os/exec" // 用于监听退出信号
+	"os/exec"
 	"path/filepath"
-	"strings" // 用于字符串操作
-	"syscall" // 用于调用 Windows API (信号)
-	"time"    // 用于超时控制
+	"strings"
+	"syscall"
+	"time"
 
-	"github.com/atotto/clipboard"       // *** 剪贴板库 ***
-	"github.com/getlantern/systray"     // 托盘图标库
-	"github.com/grandcat/zeroconf"      // Bonjour/mDNS 库
-	"golang.org/x/sys/windows/registry" // Windows 注册表操作库
+	"github.com/atotto/clipboard"
+	"github.com/getlantern/systray"
+	"github.com/grandcat/zeroconf"
+	"golang.org/x/sys/windows/registry"
 )
 
 // 定义常量
 const (
-	listenPort         = ":8080"                                         // 服务器监听的端口号 (保持 8080)
-	ahkExecutableName  = "AutoHotkey.exe"                                // AHK 可执行文件名 (需放在同目录)
-	sleepScriptName    = "sleep_countdown.ahk"                           // 睡眠脚本文件名
-	shutdownScriptName = "shutdown_countdown.ahk"                        // 关机脚本文件名
-	notifyScriptName   = "notify.ahk"                                    // *** 通知脚本文件名 ***
-	iconFileName       = "icon.ico"                                      // 托盘图标文件名 (需放在同目录)
-	mDNSServiceName    = "BealinkGo"                                     // Bonjour/mDNS 服务名 (可自定义)
-	mDNSServiceType    = "_http._tcp"                                    // HTTP 服务的标准类型
-	mDNSDomain         = "local."                                        // mDNS 域
-	registryRunPath    = `Software\Microsoft\Windows\CurrentVersion\Run` // 开机自启注册表路径 (当前用户)
-	registryValueName  = "BealinkGoServer"                               // 在注册表中为此程序设置的名称
+	listenPort         = ":8080"
+	ahkExecutableName  = "AutoHotkey.exe" // AHK主程序名
+	sleepScriptName    = "sleep_countdown.ahk"
+	shutdownScriptName = "shutdown_countdown.ahk"
+	notifyScriptName   = "notify.ahk"
+	iconFileName       = "icon.ico"
+	mDNSServiceName    = "BealinkGo"  // mDNS 服务名
+	mDNSServiceType    = "_http._tcp" // mDNS 服务类型
+	mDNSDomain         = "local."     // mDNS 域名
+	registryRunPath    = `Software\Microsoft\Windows\CurrentVersion\Run`
+	registryValueName  = "BealinkGoServer" // 注册表自启动项名称
 )
 
 // --- 全局变量 ---
-var ahkPath string                   // AutoHotkey.exe 的完整路径
-var httpServer *http.Server          // HTTP 服务器实例，方便关闭
-var consoleHwnd syscall.Handle       // 当前程序的控制台窗口句柄
-var consoleVisible bool = true       // 跟踪控制台窗口是否可见 (启动后会设为 false)
-var mDNSServer *zeroconf.Server      // mDNS 服务实例，方便关闭
-var debugLoggingEnabled bool = false // *** 调试日志开关，默认为 false ***
+var (
+	ahkPath             string                       // AutoHotkey.exe 的路径
+	httpServer          *http.Server                 // HTTP 服务器实例
+	consoleHwnd         syscall.Handle               // 控制台窗口句柄
+	consoleVisible      bool             = true      // 控制台窗口是否可见
+	mDNSServer          *zeroconf.Server             // mDNS 服务实例
+	debugLoggingEnabled bool             = false     // 是否启用详细日志记录
+	originalLogOutput   io.Writer        = os.Stderr // 原始日志输出目标
+)
 
 // --- Windows API 调用准备 ---
 var (
 	kernel32             = syscall.NewLazyDLL("kernel32.dll")
 	user32               = syscall.NewLazyDLL("user32.dll")
-	procGetConsoleWindow = kernel32.NewProc("GetConsoleWindow")
-	procShowWindow       = user32.NewProc("ShowWindow")
+	procGetConsoleWindow = kernel32.NewProc("GetConsoleWindow") // 获取控制台窗口句柄
+	procShowWindow       = user32.NewProc("ShowWindow")         // 显示/隐藏窗口
+	procSendMessage      = user32.NewProc("SendMessageW")       // 发送消息
 )
 
+// Windows API 常量
 const (
-	SW_HIDE   = 0
-	SW_SHOWNA = 8
-) // 使用 SW_SHOWNA 尝试修复任务栏图标残留
+	SW_HIDE   = 0 // 隐藏窗口
+	SW_SHOWNA = 8 // 显示窗口但不激活
 
-// --- 控制台窗口操作函数 ---
-func getConsoleHwnd() (syscall.Handle, error) {
+	// 用于关闭显示器的 Windows 消息常量
+	WM_SYSCOMMAND   = 0x0112          // 系统命令消息
+	SC_MONITORPOWER = 0xF170          // 显示器电源相关的系统命令
+	MONITOR_OFF     = 2               // 参数：关闭显示器 (0: On, 1: LowPower, 2: Off)
+	HWND_BROADCAST  = uintptr(0xffff) // 广播消息给所有顶级窗口
+
+	ERROR_ACCESS_DENIED syscall.Errno = 5 // 定义 Access Denied 错误码
+)
+
+// --- 控制台窗口操作 ---
+func getConsoleHwnd() syscall.Handle {
 	ret, _, _ := procGetConsoleWindow.Call()
-	hwnd := syscall.Handle(ret)
+	return syscall.Handle(ret)
+}
+
+func showWindow(hwnd syscall.Handle, command int) {
 	if hwnd == 0 {
-		return 0, fmt.Errorf("未找到控制台窗口")
-	}
-	return hwnd, nil
-}
-func showWindow(hwnd syscall.Handle, command int) bool {
-	_, _, err := procShowWindow.Call(uintptr(hwnd), uintptr(command))
-	errno := syscall.Errno(0)
-	if err != nil && err.Error() != errno.Error() {
-		log.Printf("警告: ShowWindow 调用可能失败 (Command: %d): %v\n", command, err)
-		return false
-	}
-	return true
-}
-func toggleConsoleWindow() {
-	if consoleHwnd == 0 {
-		log.Println("错误: 控制台句柄无效")
 		return
 	}
+	procShowWindow.Call(uintptr(hwnd), uintptr(command))
+}
+
+func toggleConsoleWindow() {
+	if consoleHwnd == 0 {
+		consoleHwnd = getConsoleHwnd()
+		if consoleHwnd == 0 {
+			log.Println("错误: 未能获取控制台窗口句柄。")
+			return
+		}
+	}
 	if consoleVisible {
-		if showWindow(consoleHwnd, SW_HIDE) {
-			consoleVisible = false
-		}
+		showWindow(consoleHwnd, SW_HIDE)
+		consoleVisible = false
 	} else {
-		if showWindow(consoleHwnd, SW_SHOWNA) {
-			consoleVisible = true
-		}
+		showWindow(consoleHwnd, SW_SHOWNA)
+		consoleVisible = true
 	}
 }
 
-// --- 开机自启注册表操作函数 ---
+// --- 开机自启相关 ---
 func isAutoStartEnabled() (bool, error) {
 	key, err := registry.OpenKey(registry.CURRENT_USER, registryRunPath, registry.QUERY_VALUE)
 	if err != nil {
@@ -102,325 +112,314 @@ func isAutoStartEnabled() (bool, error) {
 	}
 	defer key.Close()
 	_, _, err = key.GetStringValue(registryValueName)
-	if err != nil {
-		if err == registry.ErrNotExist {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
+	return err == nil, nil
 }
+
 func enableAutoStart() error {
 	exePath, err := os.Executable()
 	if err != nil {
-		return err
+		return fmt.Errorf("获取程序路径失败: %w", err)
 	}
-	quotedPath := `"` + exePath + `"`
-	key, err := registry.OpenKey(registry.CURRENT_USER, registryRunPath, registry.SET_VALUE|registry.QUERY_VALUE)
-	if err == nil {
-		_ = key.DeleteValue(registryValueName)
-		key.Close()
-	} else if err != registry.ErrNotExist {
-		return fmt.Errorf("无法打开注册表键 '%s' 进行清理: %w", registryRunPath, err)
-	}
-	key, _, err = registry.CreateKey(registry.CURRENT_USER, registryRunPath, registry.SET_VALUE)
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, registryRunPath, registry.SET_VALUE)
 	if err != nil {
-		return err
+		return fmt.Errorf("创建注册表键失败: %w", err)
 	}
 	defer key.Close()
+	quotedPath := `"` + exePath + `"` // 路径加引号以处理空格
 	err = key.SetStringValue(registryValueName, quotedPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("写入注册表值失败: %w", err)
 	}
-	log.Printf("开机自启已启用/更新: %s\n", quotedPath)
+	log.Println("开机自启已启用。")
 	return nil
 }
+
 func disableAutoStart() error {
 	key, err := registry.OpenKey(registry.CURRENT_USER, registryRunPath, registry.SET_VALUE)
 	if err != nil {
 		if err == registry.ErrNotExist {
+			log.Println("开机自启项不存在，无需禁用。")
 			return nil
 		}
-		return err
+		return fmt.Errorf("打开注册表键失败: %w", err)
 	}
 	defer key.Close()
 	err = key.DeleteValue(registryValueName)
 	if err != nil && err != registry.ErrNotExist {
-		return err
+		return fmt.Errorf("删除注册表值失败: %w", err)
 	}
 	log.Println("开机自启已禁用。")
 	return nil
 }
 
-// --- findLocalAhkPath 函数 ---
-func findLocalAhkPath() (string, error) {
+// --- AHK 脚本执行 ---
+func findAhkPath() (string, error) {
+	// 优先从程序同目录查找
 	exePath, err := os.Executable()
-	var dir string
-	if err != nil {
-		dir, err = os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("无法获取程序路径和工作目录")
+	if err == nil {
+		dir := filepath.Dir(exePath)
+		localAhkPath := filepath.Join(dir, ahkExecutableName)
+		if _, statErr := os.Stat(localAhkPath); statErr == nil {
+			return localAhkPath, nil
 		}
-	} else {
-		dir = filepath.Dir(exePath)
 	}
-	localAhkPath := filepath.Join(dir, ahkExecutableName)
-	if _, err := os.Stat(localAhkPath); err == nil {
-		return localAhkPath, nil
+	// 如果找不到，尝试从环境变量 PATH 中查找
+	path, err := exec.LookPath(ahkExecutableName)
+	if err == nil {
+		return path, nil
 	}
-	return "", fmt.Errorf("未在 %s 找到 %s", dir, ahkExecutableName)
+	return "", fmt.Errorf("未在程序目录或系统PATH中找到 %s", ahkExecutableName)
 }
 
-// --- runAhkScript 函数 ---
 func runAhkScript(scriptName string, args ...string) error {
 	if ahkPath == "" {
 		var findErr error
-		ahkPath, findErr = findLocalAhkPath()
+		ahkPath, findErr = findAhkPath()
 		if findErr != nil {
-			return fmt.Errorf("AHK 路径未设置且无法找到")
+			return findErr // 直接返回错误，不记录日志，让调用者处理
 		}
 	}
-	exePath, err := os.Executable()
-	var scriptDir string
-	if err != nil {
-		scriptDir, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("无法获取脚本目录")
-		}
-	} else {
-		scriptDir = filepath.Dir(exePath)
-	}
+	scriptDir := filepath.Dir(os.Args[0]) // 脚本通常和主程序在同一目录
 	scriptFullPath := filepath.Join(scriptDir, scriptName)
+
 	if _, err := os.Stat(scriptFullPath); os.IsNotExist(err) {
-		return fmt.Errorf("脚本 %s 未在 %s 找到", scriptName, scriptDir)
+		return fmt.Errorf("脚本 %s 未找到", scriptFullPath)
 	}
-	cmdArgs := []string{scriptFullPath}
-	cmdArgs = append(cmdArgs, args...)
-	// 仅在调试模式下打印完整参数，避免日志过长
-	if debugLoggingEnabled {
-		log.Printf("执行: %s %v\n", ahkPath, cmdArgs)
-	} else {
-		log.Printf("执行 AHK 脚本: %s (带 %d 个参数)\n", scriptName, len(args))
-	}
+
+	cmdArgs := append([]string{scriptFullPath}, args...)
 	cmd := exec.Command(ahkPath, cmdArgs...)
-	err = cmd.Start()
-	if err != nil {
-		return fmt.Errorf("启动脚本 %s 失败: %w", scriptFullPath, err)
+
+	if debugLoggingEnabled {
+		log.Printf("执行 AHK: %s %v", ahkPath, cmdArgs)
 	}
-	// 简化日志
-	log.Printf("脚本 %s 已启动 (PID: %d)\n", scriptName, cmd.Process.Pid)
-	go cmd.Wait()
+
+	err := cmd.Start()
+	if err != nil {
+		return fmt.Errorf("启动脚本 %s 失败: %w", scriptName, err)
+	}
+	log.Printf("脚本 %s 已启动。", scriptName) // 简洁日志
+
+	go func() { // 异步等待脚本结束，避免阻塞
+		cmd.Wait() // waitErr 可以忽略，因为是轻量程序
+	}()
 	return nil
 }
 
 // --- HTTP 处理函数 ---
 func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if debugLoggingEnabled && r.URL.Path != "/favicon.ico" {
-		log.Printf("请求: %s %s from %s\n", r.Method, r.URL.Path, r.RemoteAddr)
+		log.Printf("请求: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 	}
 	if r.URL.Path == "/favicon.ico" {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, "Bealink Go 服务运行中。\n访问 /sleep, /shutdown, /clip/<text>。\n")
+	fmt.Fprintln(w, "Bealink Go 服务运行中。可用端点: /sleep, /shutdown, /clip/<text>, /monitor-off, /ping")
 }
+
 func handlePing(w http.ResponseWriter, r *http.Request) {
-	if debugLoggingEnabled && r.URL.Path != "/favicon.ico" {
-		log.Printf("请求: %s %s from %s\n", r.Method, r.URL.Path, r.RemoteAddr)
+	if debugLoggingEnabled {
+		log.Printf("请求: /ping from %s", r.RemoteAddr)
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, "pong")
+	fmt.Fprintln(w, "pong")
 }
+
 func handleSleep(w http.ResponseWriter, r *http.Request) {
 	if debugLoggingEnabled {
-		log.Printf("收到 /sleep 请求 from %s\n", r.RemoteAddr)
+		log.Printf("请求: /sleep from %s", r.RemoteAddr)
 	}
 	err := runAhkScript(sleepScriptName)
 	if err != nil {
-		log.Printf("错误: 调用睡眠脚本失败: %v\n", err)
+		log.Printf("错误: 调用睡眠脚本失败: %v", err) // 适当记录错误
 		http.Error(w, "启动睡眠脚本失败。", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, "睡眠倒计时已启动。\n")
+	fmt.Fprintln(w, "睡眠倒计时已启动。")
 }
+
 func handleShutdown(w http.ResponseWriter, r *http.Request) {
 	if debugLoggingEnabled {
-		log.Printf("收到 /shutdown 请求 from %s\n", r.RemoteAddr)
+		log.Printf("请求: /shutdown from %s", r.RemoteAddr)
 	}
 	err := runAhkScript(shutdownScriptName)
 	if err != nil {
-		log.Printf("错误: 调用关机脚本失败: %v\n", err)
+		log.Printf("错误: 调用关机脚本失败: %v", err)
 		http.Error(w, "启动关机脚本失败。", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, "关机倒计时已启动。\n")
+	fmt.Fprintln(w, "关机倒计时已启动。")
 }
+
 func handleClip(w http.ResponseWriter, r *http.Request) {
 	if debugLoggingEnabled {
-		log.Printf("收到剪贴板请求: %s %s from %s\n", r.Method, r.URL.Path, r.RemoteAddr)
+		log.Printf("请求: %s from %s", r.URL.Path, r.RemoteAddr)
 	}
 	encodedText := strings.TrimPrefix(r.URL.Path, "/clip/")
 	if encodedText == "" {
-		http.Error(w, "格式：/clip/<文本内容>", http.StatusBadRequest)
+		http.Error(w, "格式错误，请使用 /clip/<要复制的文本>", http.StatusBadRequest)
 		return
 	}
 	textToCopy, err := url.PathUnescape(encodedText)
 	if err != nil {
-		log.Printf("错误: URL 解码失败: %v\n", err)
+		log.Printf("错误: URL解码失败: %v", err)
 		http.Error(w, "无法解码文本。", http.StatusBadRequest)
 		return
 	}
-	err = clipboard.WriteAll(textToCopy)
-	if err != nil {
-		log.Printf("错误: 写入剪贴板失败: %v\n", err)
+	if err := clipboard.WriteAll(textToCopy); err != nil {
+		log.Printf("错误: 写入剪贴板失败: %v", err)
 		http.Error(w, "无法写入剪贴板。", http.StatusInternalServerError)
 		return
 	}
-	log.Printf("成功写入剪贴板: %s\n", textToCopy) // 保留这个成功日志
-
-	// *** 移除长度限制，直接传递 textToCopy ***
-	notificationText := textToCopy
-	err = runAhkScript(notifyScriptName, notificationText) // 调用 notify.ahk 并传递完整文本
-	if err != nil {
-		log.Printf("警告: 调用通知脚本失败: %v\n", err)
+	log.Printf("文本已复制到剪贴板: %s", textToCopy) // 关键操作，保留日志
+	if err := runAhkScript(notifyScriptName, textToCopy); err != nil {
+		log.Printf("警告: 调用通知脚本失败: %v", err) // 通知失败是次要的
 	}
-
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	respConfirm := textToCopy
-	if len(respConfirm) > 50 {
-		respConfirm = respConfirm[:50] + "..."
-	}
-	fmt.Fprintf(w, "文本已复制到剪贴板: %s\n", respConfirm)
+	fmt.Fprintf(w, "文本已复制到剪贴板: %s\n", textToCopy)
 }
 
-// --- getLocalIP 函数 ---
-func getLocalIP() string {
-	interfaces, err := net.Interfaces()
+// 修改后的：关闭显示器的函数
+func turnOffMonitor() error {
+	_, _, err := procSendMessage.Call(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, MONITOR_OFF)
+
+	// err 是 syscall.Errno 类型。
+	// syscall.Errno(0) (ERROR_SUCCESS) 表示成功。
+	// 非零 syscall.Errno 值表示错误。
+	if err != syscall.Errno(0) { // 修正：与 syscall.Errno(0) 比较
+		// 检查错误是否是 ERROR_ACCESS_DENIED (值为 5)
+		// 我们直接使用预定义的 ERROR_ACCESS_DENIED 常量进行比较
+		if err == ERROR_ACCESS_DENIED {
+			// API 返回了 "Access is denied"，但根据经验，显示器通常仍会关闭。
+			// 我们将此记录为警告，并认为操作对于关闭显示器这个主要目的是成功的。
+			log.Println("警告: SendMessage (SC_MONITORPOWER) API 调用返回 'Access is denied'。显示器通常仍会关闭。")
+			// 不返回错误，因为我们期望主要功能（关闭显示器）仍然有效。
+		} else {
+			// 对于任何其他错误，它是未预期的，因此将其报告为失败。
+			return fmt.Errorf("SendMessage (SC_MONITORPOWER) API 调用失败: %w", err)
+		}
+	}
+	// 如果 err 是 syscall.Errno(0) (SUCCESS) 或 ERROR_ACCESS_DENIED (已在上面处理), 则记录命令已发送。
+	log.Println("关闭显示器命令已发送。")
+	return nil
+}
+
+// 新增：处理 /monitor-off 请求的函数
+func handleMonitorOff(w http.ResponseWriter, r *http.Request) {
+	if debugLoggingEnabled {
+		log.Printf("请求: /monitor-off from %s", r.RemoteAddr)
+	}
+	err := turnOffMonitor() // 调用修改后的函数
+	if err != nil {         // 如果 turnOffMonitor 返回了其他类型的错误
+		log.Printf("错误: 关闭显示器操作失败: %v", err)
+		http.Error(w, "关闭显示器失败。", http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprintln(w, "关闭显示器的命令已发送。")
+}
+
+// --- 工具函数 ---
+func getLocalIP() string { // 简化版IP获取，选择第一个合适的非环回IPv4
+	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return "127.0.0.1"
 	}
-	var candidateIPs []string
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagPointToPoint != 0 || strings.Contains(strings.ToLower(iface.Name), "virtual") || strings.Contains(strings.ToLower(iface.Name), "vmware") || strings.Contains(strings.ToLower(iface.Name), "vbox") || strings.Contains(strings.ToLower(iface.Name), "docker") || strings.Contains(strings.ToLower(iface.Name), "wsl") || strings.Contains(strings.ToLower(iface.Name), "loopback") || strings.Contains(strings.ToLower(iface.Name), "tap") || strings.Contains(strings.ToLower(iface.Name), "tun") || strings.Contains(strings.ToLower(iface.Name), "ppp") || strings.Contains(strings.ToLower(iface.Name), "wg") {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
+	for _, address := range addrs {
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String()
 			}
-			if ip == nil || ip.To4() == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-				continue
-			}
-			ipStr := ip.String()
-			if strings.HasPrefix(ipStr, "169.254.") || strings.HasPrefix(ipStr, "198.18.") || strings.HasPrefix(ipStr, "172.17.") || strings.HasPrefix(ipStr, "172.18.") || strings.HasPrefix(ipStr, "172.19.") || strings.HasPrefix(ipStr, "172.20.") || strings.HasPrefix(ipStr, "172.21.") || strings.HasPrefix(ipStr, "172.22.") || strings.HasPrefix(ipStr, "172.23.") || strings.HasPrefix(ipStr, "172.24.") || strings.HasPrefix(ipStr, "172.25.") || strings.HasPrefix(ipStr, "172.26.") || strings.HasPrefix(ipStr, "172.27.") || strings.HasPrefix(ipStr, "172.28.") || strings.HasPrefix(ipStr, "172.29.") || strings.HasPrefix(ipStr, "172.30.") || strings.HasPrefix(ipStr, "172.31.") {
-				continue
-			}
-			candidateIPs = append(candidateIPs, ipStr)
 		}
 	}
-	if len(candidateIPs) > 0 {
-		log.Printf("最终选择 IP: %s\n", candidateIPs[0])
-		return candidateIPs[0]
-	}
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err == nil {
-		defer conn.Close()
-		localAddr := conn.LocalAddr().(*net.UDPAddr)
-		log.Printf("通过 Dial 方法找到 IP: %s\n", localAddr.IP.String())
-		return localAddr.IP.String()
-	}
-	log.Println("警告: 未找到合适的 IP, 回退到 127.0.0.1")
 	return "127.0.0.1"
 }
 
-// --- loadIcon 函数 ---
-func loadIcon(fileName string) ([]byte, error) {
+func loadIconBytes(fileName string) []byte {
 	exePath, err := os.Executable()
-	var dir string
 	if err != nil {
-		dir, err = os.Getwd()
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		dir = filepath.Dir(exePath)
+		log.Printf("警告: 获取程序路径失败，可能无法加载图标: %v", err)
+		return nil
 	}
-	iconPath := filepath.Join(dir, fileName)
-	content, err := ioutil.ReadFile(iconPath)
+	iconPath := filepath.Join(filepath.Dir(exePath), fileName)
+	iconBytes, err := ioutil.ReadFile(iconPath)
 	if err != nil {
-		return nil, err
+		log.Printf("警告: 加载图标 %s 失败: %v", iconPath, err)
+		return nil
 	}
-	if len(content) == 0 {
-		return nil, fmt.Errorf("图标 %s 为空", iconPath)
-	}
-	return content, nil
+	return iconBytes
 }
 
-// --- main 函数 ---
+func setDebugLogging(enabled bool) {
+	debugLoggingEnabled = enabled
+	if debugLoggingEnabled {
+		log.SetOutput(originalLogOutput)
+		log.Println("调试日志已启用。")
+	} else {
+		log.Println("调试日志已禁用。") // 确保这条能输出
+		log.SetOutput(ioutil.Discard)
+	}
+}
+
+// --- 主程序与系统托盘 ---
 func main() {
+	originalLogOutput = log.Writer() // 保存log包默认的输出
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	log.Println("程序启动，初始化系统托盘...")
-	var err error
-	consoleHwnd, err = getConsoleHwnd()
-	if err != nil {
-		log.Printf("启动警告: %v\n", err)
+	log.Println("程序启动...")
+
+	consoleHwnd = getConsoleHwnd() // 尽早获取句柄
+
+	// 默认禁用调试日志，除非显式开启
+	if !debugLoggingEnabled {
+		// 在程序启动时，如果调试日志是默认关闭的，先用原始输出打印一条提示信息
+		fmt.Fprintln(originalLogOutput, time.Now().Format("2006/01/02 15:04:05 main.go:")+" 默认禁用调试日志。可通过托盘菜单启用。")
+		log.SetOutput(ioutil.Discard)
 	}
+
 	systray.Run(onReady, onExit)
-	log.Println("程序正常退出。")
 }
 
-// --- onReady 函数 ---
 func onReady() {
-	log.Println("系统托盘 onReady 开始执行。")
-	if consoleHwnd != 0 {
-		if showWindow(consoleHwnd, SW_HIDE) {
-			consoleVisible = false
-		}
+	// 确保 onReady 期间的日志能输出
+	currentLogOutput := log.Writer()
+	log.SetOutput(originalLogOutput)
+
+	log.Println("系统托盘准备就绪。")
+	if consoleHwnd != 0 { // 默认隐藏控制台
+		showWindow(consoleHwnd, SW_HIDE)
+		consoleVisible = false
 	}
-	iconBytes, err := loadIcon(iconFileName)
-	if err != nil {
-		log.Printf("错误: 加载图标失败: %v\n", err)
-	} else {
-		systray.SetIcon(iconBytes)
-	}
+
+	systray.SetIcon(loadIconBytes(iconFileName))
 	systray.SetTitle("Bealink Go 服务")
 	systray.SetTooltip("Bealink Go (" + listenPort + ")")
-	mConsole := systray.AddMenuItem("显示控制台", "显示/隐藏窗口")
-	mDebugLog := systray.AddMenuItem("启用调试日志", "切换详细日志记录")
-	mAutoStart := systray.AddMenuItem("开机自启", "切换开机自启")
-	systray.AddSeparator()
-	mQuit := systray.AddMenuItem("退出", "关闭程序")
-	if debugLoggingEnabled {
-		mDebugLog.Check()
+
+	mConsole := systray.AddMenuItem("显示控制台", "显示/隐藏控制台窗口")
+	if !consoleVisible { // 根据初始状态设置
+		mConsole.SetTitle("显示控制台")
 	} else {
-		mDebugLog.Uncheck()
+		mConsole.SetTitle("隐藏控制台")
 	}
-	go func() {
-		enabled, err := isAutoStartEnabled()
-		if err == nil {
-			if enabled {
-				mAutoStart.Check()
-			} else {
-				mAutoStart.Uncheck()
-			}
-		} else {
-			mAutoStart.Disable()
-			mAutoStart.SetTitle("开机自启(错误)")
-		}
-	}()
+
+	mDebug := systray.AddMenuItem("启用调试日志", "切换详细日志输出")
+	if debugLoggingEnabled {
+		mDebug.Check()
+	}
+
+	mAutoStart := systray.AddMenuItem("开机自启", "设置/取消开机自启")
+	autoStartEnabled, err := isAutoStartEnabled()
+	if err == nil && autoStartEnabled {
+		mAutoStart.Check()
+	} else if err != nil {
+		log.Printf("错误: 检查开机自启状态失败: %v", err)
+		mAutoStart.Disable()
+	}
+
+	systray.AddSeparator()
+	mQuit := systray.AddMenuItem("退出", "关闭服务")
+
+	// 启动核心服务 (HTTP, mDNS)
 	coreServiceCtx, coreServiceCancel := context.WithCancel(context.Background())
 	go startCoreServices(coreServiceCtx)
+
+	// 托盘菜单事件处理
 	go func() {
 		for {
 			select {
@@ -431,116 +430,149 @@ func onReady() {
 				} else {
 					mConsole.SetTitle("显示控制台")
 				}
-			case <-mDebugLog.ClickedCh:
-				debugLoggingEnabled = !debugLoggingEnabled
+			case <-mDebug.ClickedCh:
+				setDebugLogging(!debugLoggingEnabled)
 				if debugLoggingEnabled {
-					mDebugLog.Check()
-					log.Println("调试日志已启用。")
+					mDebug.Check()
 				} else {
-					mDebugLog.Uncheck()
-					log.Println("调试日志已禁用。")
+					mDebug.Uncheck()
 				}
 			case <-mAutoStart.ClickedCh:
 				if mAutoStart.Checked() {
 					if err := disableAutoStart(); err == nil {
 						mAutoStart.Uncheck()
 					} else {
-						log.Printf("禁用自启失败: %v", err)
+						log.Printf("错误: 禁用开机自启失败: %v", err)
 					}
 				} else {
 					if err := enableAutoStart(); err == nil {
 						mAutoStart.Check()
 					} else {
-						log.Printf("启用自启失败: %v", err)
+						log.Printf("错误: 启用开机自启失败: %v", err)
 					}
 				}
 			case <-mQuit.ClickedCh:
-				log.Println("收到退出菜单请求...")
-				coreServiceCancel()
-				systray.Quit()
+				log.Println("收到退出请求...")
+				coreServiceCancel() // 通知核心服务停止
+				systray.Quit()      // 退出托盘
 				return
 			}
 		}
 	}()
 	log.Println("onReady 执行完毕。")
+	// 恢复 onReady 执行前的日志输出状态
+	if !debugLoggingEnabled && currentLogOutput == ioutil.Discard {
+		log.SetOutput(ioutil.Discard)
+	} else if currentLogOutput != originalLogOutput { // 如果之前不是原始输出，恢复它
+		log.SetOutput(currentLogOutput)
+	}
 }
 
-// --- 核心服务启动函数 ---
+func onExit() {
+	log.SetOutput(originalLogOutput) // 确保退出日志能输出
+	log.Println("程序正在退出...")
+	if consoleHwnd != 0 && !consoleVisible { // 退出时显示控制台，方便查看最后日志
+		showWindow(consoleHwnd, SW_SHOWNA)
+	}
+}
+
 func startCoreServices(ctx context.Context) {
-	log.Println("核心服务 goroutine 启动...")
+	// 确保核心服务启动时的日志能输出
+	currentGoroutineLogOutput := log.Writer()
+	log.SetOutput(originalLogOutput)
+	log.Println("核心服务启动中...")
+
+	// 初始化 AHK 路径
 	var findErr error
-	ahkPath, findErr = findLocalAhkPath()
+	ahkPath, findErr = findAhkPath()
 	if findErr != nil {
-		log.Printf("启动警告: %v", findErr)
+		log.Printf("警告: %v (AHK 相关功能可能不可用)", findErr)
 	}
-	portStr := strings.TrimPrefix(listenPort, ":")
-	port, err := net.LookupPort("tcp", portStr)
-	if err != nil {
-		log.Printf("致命错误: 无效端口 %s: %v\n", portStr, err)
-		return
+
+	// mDNS 服务注册
+	portInt, _ := net.LookupPort("tcp", strings.TrimPrefix(listenPort, ":"))
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "BealinkGoHost"
 	}
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = mDNSServiceName
-	} else {
-		hostname = strings.TrimSuffix(hostname, ".local")
-	}
-	instanceName := fmt.Sprintf("%s", hostname)
-	log.Printf("注册 mDNS: %s:%d\n", instanceName, port)
 	var mDNSErr error
-	mDNSServer, mDNSErr = zeroconf.Register(instanceName, mDNSServiceType, mDNSDomain, port, []string{"txtv=0"}, nil)
+	mDNSServer, mDNSErr = zeroconf.Register(hostname, mDNSServiceType, mDNSDomain, portInt, []string{"path=/"}, nil)
 	if mDNSErr != nil {
-		log.Printf("警告: mDNS 注册失败: %v\n", mDNSErr)
+		log.Printf("警告: mDNS 服务注册失败: %v", mDNSErr)
 	} else {
-		log.Println("mDNS 注册成功！")
+		log.Println("mDNS 服务注册成功。")
 	}
+
+	// HTTP 服务器设置
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRoot)
 	mux.HandleFunc("/ping", handlePing)
 	mux.HandleFunc("/sleep", handleSleep)
 	mux.HandleFunc("/shutdown", handleShutdown)
-	mux.HandleFunc("/clip/", handleClip) // 添加 clip 路由
+	mux.HandleFunc("/clip/", handleClip)
+	mux.HandleFunc("/monitor-off", handleMonitorOff) // 注册新端点
+
 	httpServer = &http.Server{Addr: listenPort, Handler: mux}
+	log.Printf("HTTP 服务监听于: %s (本机IP: %s)", listenPort, getLocalIP())
+	if mDNSServer != nil {
+		log.Printf("mDNS 可访问地址: http://%s.%s:%d", hostname, mDNSDomain, portInt)
+	}
+
+	// 根据调试状态决定后续日志输出
+	if !debugLoggingEnabled {
+		log.SetOutput(ioutil.Discard)
+	} else {
+		log.SetOutput(originalLogOutput)
+	}
+
+	// 启动 HTTP 服务器的 Goroutine
 	httpServerErrChan := make(chan error, 1)
 	go func() {
-		log.Printf("HTTP 服务器准备监听于 %s...\n", httpServer.Addr)
-		localIP := getLocalIP()
-		log.Printf("访问: http://%s%s 或 http://%s.%s:%d\n", localIP, listenPort, instanceName, mDNSDomain, port)
-		httpServerErrChan <- httpServer.ListenAndServe()
+		// ListenAndServe 的内部日志我们无法直接控制，但可以控制我们自己的log
+		// 在这个goroutine内部，如果debugLoggingEnabled为false，log的输出已经是ioutil.Discard
+		err := httpServer.ListenAndServe()
+		// 服务结束后，恢复日志输出，确保能看到结束信息
+		log.SetOutput(originalLogOutput)
+		if err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP 服务器监听 goroutine 意外结束: %v", err)
+		} else {
+			log.Println("HTTP 服务器监听 goroutine 正常结束。")
+		}
+		httpServerErrChan <- err // 将错误或 nil 发送回主 goroutine
 		close(httpServerErrChan)
-		log.Println("HTTP 服务器监听 goroutine 结束。")
 	}()
+
+	// 等待上下文取消 (程序退出信号) 或 HTTP 服务器出错
 	select {
 	case err := <-httpServerErrChan:
+		log.SetOutput(originalLogOutput) // 确保错误日志能输出
 		if err != nil && err != http.ErrServerClosed {
-			log.Printf("!!! HTTP 服务器启动或运行时发生错误: %v !!!\n", err)
-			systray.SetTooltip("错误: HTTP 服务未能启动！")
-		} else if err == http.ErrServerClosed {
-			log.Println("HTTP 服务器已被关闭。")
+			log.Printf("!!! HTTP 服务器错误: %v", err)
+			systray.SetTooltip("错误: HTTP服务故障")
 		}
 	case <-ctx.Done():
-		log.Println("核心服务收到退出信号 (ctx.Done)，开始清理...")
-		log.Println("正在关闭 HTTP 服务器...")
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer shutdownCancel()
+		log.SetOutput(originalLogOutput) // 确保退出日志能输出
+		log.Println("收到退出信号，开始关闭核心服务...")
+		// 关闭 HTTP 服务器
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			log.Printf("HTTP 服务器关闭错误: %v\n", err)
+			log.Printf("HTTP 服务器关闭错误: %v", err)
 		} else {
 			log.Println("HTTP 服务器已关闭。")
 		}
 	}
+
+	// 清理 mDNS
 	if mDNSServer != nil {
-		log.Println("正在注销 mDNS 服务...")
 		mDNSServer.Shutdown()
 		log.Println("mDNS 服务已注销。")
 	}
-	log.Println("核心服务 goroutine 清理完毕，即将退出。")
-}
-
-// --- onExit 函数 ---
-func onExit() {
-	log.Println("系统托盘退出 (onExit)，程序即将终止。")
-	if consoleHwnd != 0 && !consoleVisible {
-		showWindow(consoleHwnd, SW_SHOWNA)
+	log.Println("核心服务已停止。")
+	// 恢复此 goroutine 开始时的日志设置
+	if !debugLoggingEnabled && currentGoroutineLogOutput == ioutil.Discard {
+		log.SetOutput(ioutil.Discard)
+	} else if currentGoroutineLogOutput != originalLogOutput {
+		log.SetOutput(currentGoroutineLogOutput)
 	}
 }
