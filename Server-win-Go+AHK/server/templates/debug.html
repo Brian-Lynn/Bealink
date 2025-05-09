@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>调试日志 - BealinkGo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        header {
+            background-color: #333;
+            color: #fff;
+            padding: 1em;
+            text-align: center;
+        }
+        #log-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 1em;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            margin: 1em;
+            border-radius: 5px;
+            font-family: 'Consolas', 'Monaco', 'Lucida Console', monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+            white-space: pre-wrap; /* 保持换行和空格 */
+            word-wrap: break-word; /* 长单词换行 */
+        }
+        .log-entry {
+            padding: 2px 5px;
+            border-bottom: 1px dotted #eee;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .status-bar {
+            padding: 0.5em 1em;
+            background-color: #e0e0e0;
+            font-size: 0.8em;
+            text-align: right;
+        }
+        .status-connected { color: green; }
+        .status-disconnected { color: red; }
+        .status-connecting { color: orange; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>BealinkGo - 调试日志</h1>
+    </header>
+
+    <div id="log-container">
+        </div>
+
+    <div class="status-bar">
+        WebSocket 状态: <span id="ws-status" class="status-disconnected">未连接</span> |
+        日志条数: <span id="log-count">0</span>
+        <button id="clear-logs-btn" title="清空当前页面显示的日志">清空显示</button>
+        <button id="scroll-toggle-btn" title="切换自动滚动">暂停滚动</button>
+    </div>
+
+    <script>
+        const logContainer = document.getElementById('log-container');
+        const wsStatus = document.getElementById('ws-status');
+        const logCountElement = document.getElementById('log-count');
+        const clearLogsBtn = document.getElementById('clear-logs-btn');
+        const scrollToggleBtn = document.getElementById('scroll-toggle-btn');
+
+        const MAX_DISPLAY_LOGS = 500; // 页面上最多显示的日志条数，防止浏览器卡顿
+        let currentLogCount = 0;
+        let autoScroll = true;
+        let socket;
+
+        function addLogEntry(message) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = message; // 直接显示原始文本消息
+            logContainer.appendChild(entry);
+            currentLogCount++;
+            logCountElement.textContent = currentLogCount;
+
+            // 如果日志条数超过上限，移除最旧的条目
+            while (logContainer.children.length > MAX_DISPLAY_LOGS) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+
+            if (autoScroll) {
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+        }
+
+        function connectWebSocket() {
+            // WebSocketURL 由Go模板提供
+            const wsURL = '{{.WebSocketURL}}';
+            if (!wsURL) {
+                wsStatus.textContent = 'WebSocket URL 未配置';
+                wsStatus.className = 'status-disconnected';
+                console.error("WebSocket URL is not defined in the template.");
+                return;
+            }
+
+            console.log(`尝试连接到 WebSocket: ${wsURL}`);
+            wsStatus.textContent = '连接中...';
+            wsStatus.className = 'status-connecting';
+
+            socket = new WebSocket(wsURL);
+
+            socket.onopen = function(event) {
+                console.log('WebSocket 连接已打开');
+                wsStatus.textContent = '已连接';
+                wsStatus.className = 'status-connected';
+                // 连接成功后，服务器端的 Hub 会自动推送历史日志
+            };
+
+            socket.onmessage = function(event) {
+                // console.log('收到消息:', event.data);
+                addLogEntry(event.data);
+            };
+
+            socket.onclose = function(event) {
+                console.log('WebSocket 连接已关闭:', event);
+                wsStatus.textContent = '已断开';
+                wsStatus.className = 'status-disconnected';
+                // 尝试重连 (可选)
+                setTimeout(connectWebSocket, 5000); // 5秒后尝试重连
+            };
+
+            socket.onerror = function(error) {
+                console.error('WebSocket 错误:', error);
+                wsStatus.textContent = '连接错误';
+                wsStatus.className = 'status-disconnected';
+                // onerror 之后通常会触发 onclose
+            };
+        }
+
+        clearLogsBtn.addEventListener('click', () => {
+            logContainer.innerHTML = '';
+            currentLogCount = 0;
+            logCountElement.textContent = currentLogCount;
+        });
+
+        scrollToggleBtn.addEventListener('click', () => {
+            autoScroll = !autoScroll;
+            scrollToggleBtn.textContent = autoScroll ? '暂停滚动' : '自动滚动';
+        });
+
+        // 页面加载时开始连接
+        connectWebSocket();
+    </script>
+</body>
+</html>

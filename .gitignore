@@ -13,7 +13,7 @@ Server-win-python/.vscode/launch.json
 Server-win-Go+AHK/InstallerSource/Output/BeaLinkInstaller.exe
 Server-win-Go+AHK/InstallerSource/AutoHotkey.exe
 Server-win-Go+AHK/InstallerSource/bealink-server-go.exe
-Server-win-Go+AHK/InstallerSource/BealinkGoServer.iss
+
 Server-win-Go+AHK/InstallerSource/BonjourSDKSetup.exe
 Server-win-Go+AHK/InstallerSource/icon.ico
 Server-win-Go+AHK/InstallerSource/main.go
@@ -22,3 +22,16 @@ Server-win-Go+AHK/InstallerSource/shutdown_countdown.ahk
 Server-win-Go+AHK/InstallerSource/sleep_countdown.ahk
 .vscode/launch.json
 Server-win-Go+AHK/AutoHotkey.exe
+Server-win-Go+AHK/InstallerSource/bealinkserver.exe
+Server-win-Go+AHK/InstallerSource/go.mod
+Server-win-Go+AHK/InstallerSource/OutputInstaller/BeaLink_Server_Installer_v1.0.0.exe
+Server-win-Go+AHK/InstallerSource/OutputInstaller/BeaLink_Server_Installer_v1.1.45.14.exe
+Server-win-Go+AHK/InstallerSource/ahk/ahk.go
+Server-win-Go+AHK/InstallerSource/logging/buffer.go
+Server-win-Go+AHK/InstallerSource/logging/hub.go
+Server-win-Go+AHK/InstallerSource/server/handlers.go
+Server-win-Go+AHK/InstallerSource/server/server.go
+Server-win-Go+AHK/InstallerSource/server/templates/debug.html
+Server-win-Go+AHK/InstallerSource/winapi/monitor.go
+Server-win-Go+AHK/InstallerSource/winapi/registry.go
+Server-win-Go+AHK/bealinkserver.exe
