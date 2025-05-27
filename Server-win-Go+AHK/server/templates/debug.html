@@ -20,6 +20,23 @@
             color: #fff;
             padding: 1em;
             text-align: center;
+            display: flex; /* 使用flex布局 */
+            justify-content: space-between; /* 两端对齐 */
+            align-items: center; /* 垂直居中 */
+        }
+        header h1 {
+            margin: 0; /* 移除h1的默认margin */
+        }
+        .header-button {
+            background-color: #555;
+            color: white;
+            padding: 0.5em 1em;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+        .header-button:hover {
+            background-color: #777;
         }
         #log-container {
             flex-grow: 1;
@@ -56,6 +73,7 @@
 <body>
     <header>
         <h1>BealinkGo - 调试日志</h1>
+        <a href="/setting" class="header-button">返回设置</a>
     </header>
 
     <div id="log-container">

@@ -53,7 +53,7 @@ func RunScriptAndGetProcess(scriptName string, args ...string) (*os.Process, err
 	}
 
 	scriptDir := filepath.Dir(os.Args[0])
-	scriptFullPath := filepath.Join(scriptDir, scriptName)
+	scriptFullPath := filepath.Join(scriptDir, "script", scriptName)
 
 	if _, err := os.Stat(scriptFullPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("脚本 %s 未找到于 %s", scriptName, scriptFullPath)
@@ -61,19 +61,6 @@ func RunScriptAndGetProcess(scriptName string, args ...string) (*os.Process, err
 
 	cmdArgs := append([]string{scriptFullPath}, args...)
 	cmd := exec.Command(globalAhkPath, cmdArgs...)
-
-	// 在 Windows 上，如果希望 AHK 脚本窗口独立于 Go 程序的控制台，
-	// 可以设置 SysProcAttr。但对于我们的目的（能够 Kill 进程），这通常不是必需的。
-	// 如果 AHK 窗口不显示或行为异常，可以尝试取消下面这块的注释。
-	/*
-		if runtime.GOOS == "windows" {
-			cmd.SysProcAttr = &syscall.SysProcAttr{
-				HideWindow:    false, // 如果你想隐藏可能的AHK中间窗口（不推荐用于GUI脚本）
-				CreationFlags: 0x00000008, // CREATE_NO_WINDOW (如果AHK脚本自身创建GUI，这个可能不需要)
-											// 0x08000000, // DETACHED_PROCESS (使其完全独立)
-			}
-		}
-	*/
 
 	log.Printf("准备执行 AHK: %s %v", globalAhkPath, cmdArgs)
 	err := cmd.Start() // 使用 Start 而不是 Run，以便获取 Process 对象

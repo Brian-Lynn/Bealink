@@ -20,7 +20,7 @@ type Hub struct {
 // NewHub 创建一个新的 Hub。
 func NewHub() *Hub {
 	return &Hub{
-		broadcast:  make(chan []byte),
+		broadcast:  make(chan []byte, 16),
 		register:   make(chan *websocket.Conn),
 		unregister: make(chan *websocket.Conn),
 		clients:    make(map[*websocket.Conn]bool),

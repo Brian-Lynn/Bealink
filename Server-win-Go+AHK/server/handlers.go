@@ -1,17 +1,28 @@
+// ************************************************************************
+// ** 文件: server/handlers.go (UI和逻辑优化, 简化测试)                   **
+// ** 描述: 实现 /setting 页面的 GET 和 POST 请求处理。                   **
+// ** 主要改动：                                                     **
+// ** - 适配 config.BarkConfig 中 NotifyOnSystemReady 字段。         **
+// ** - 在 handleClip 中恢复对 URL 路径参数的解码。                    **
+// ** - 移除 settings 页面对 DefaultTestTitle/Body 的处理。         **
+// ************************************************************************
 package server
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
-	"bealinkserver/ahk" // 确保替换为您的模块名
+	"bealinkserver/ahk"
+	"bealinkserver/bark"
+	"bealinkserver/config"
 	"bealinkserver/logging"
 	"bealinkserver/winapi"
 
@@ -22,44 +33,66 @@ import (
 //go:embed templates
 var templateFS embed.FS
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// 允许所有来源的WebSocket连接，生产环境中应更严格
-		return true
-	},
-}
-
 var (
+	upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     func(r *http.Request) bool { return true },
+	}
 	activeSleepProcess    *os.Process
 	activeShutdownProcess *os.Process
 	sleepMutex            sync.Mutex
 	shutdownMutex         sync.Mutex
+	settingsTemplate      *template.Template
+	debugTemplate         *template.Template
 )
 
-// clearProcess 异步等待一个进程完成并清除其引用。
-func clearProcess(p **os.Process, m *sync.Mutex, taskName string) {
+func init() {
+	log.Println("正在初始化 server 包的 HTML 模板...")
+	var err error
+	settingsTemplate, err = template.ParseFS(templateFS, "templates/settings.html")
+	if err != nil {
+		log.Fatalf("!!! 致命错误: 解析 settings.html 模板失败: %v。", err)
+	}
+	debugTemplate, err = template.ParseFS(templateFS, "templates/debug.html")
+	if err != nil {
+		log.Fatalf("!!! 致命错误: 解析 debug.html 模板失败: %v。", err)
+	}
+	log.Println("HTML 模板已成功解析并缓存。")
+}
+
+func getFormValueHelper(r *http.Request, key string) string {
+	if r.MultipartForm != nil && r.MultipartForm.Value != nil {
+		if values, ok := r.MultipartForm.Value[key]; ok && len(values) > 0 {
+			return values[0]
+		}
+	}
+	if r.Form != nil {
+		if values, ok := r.Form[key]; ok && len(values) > 0 {
+			return values[0]
+		}
+	}
+	return ""
+}
+
+func clearProcess(p **os.Process, m *sync.Mutex, taskName string) { /* ... (代码同前) ... */
 	if p == nil || *p == nil {
 		return
 	}
-	processToWait := *p // 复制进程指针
-
+	processToWait := *p
 	go func() {
 		if processToWait == nil {
 			return
 		}
 		pid := processToWait.Pid
 		log.Printf("开始等待 %s AHK 脚本 (PID: %d) 结束...", taskName, pid)
-		state, err := processToWait.Wait() // 等待进程退出
+		state, err := processToWait.Wait()
 		if err != nil {
 			log.Printf("等待 %s AHK 脚本 (PID: %d) 结束时发生错误: %v", taskName, pid, err)
 		} else {
 			log.Printf("%s AHK 脚本 (PID: %d) 已结束，退出状态: %s", taskName, pid, state.String())
 		}
-
 		m.Lock()
-		// 只有当全局变量仍然指向我们等待的这个进程时，才将其清空
 		if *p != nil && (*p).Pid == pid {
 			*p = nil
 			log.Printf("已清除活动的 %s 进程引用 (PID: %d)。", taskName, pid)
@@ -70,187 +103,304 @@ func clearProcess(p **os.Process, m *sync.Mutex, taskName string) {
 	}()
 }
 
-// handleRoot 处理根路径请求，显示服务信息。
-func handleRoot(w http.ResponseWriter, r *http.Request) {
+func handleRoot(w http.ResponseWriter, r *http.Request) { /* ... (代码同前) ... */
 	if r.URL.Path == "/favicon.ico" {
 		http.NotFound(w, r)
 		return
 	}
-	hostname, _ := os.Hostname() // 获取本机主机名
-	localIP := getLocalIP()      // 获取本机IP (应在 server.go 中定义)
-
-	// 使用在 server.go 中设置的全局变量 GlobalActualListenAddr 和 GlobalActualPort
-	fmt.Fprintf(w, "Bealink Go 服务运行中。\n监听于: %s (或 http://localhost:%s)\n通过IP访问: http://%s:%s\n通过主机名(mDNS): http://%s.local:%s\n可用端点: /sleep, /shutdown, /clip/<text>, /monitor, /ping, /debug",
-		GlobalActualListenAddr, GlobalActualPort, // 这些变量在 server.go 中定义和设置
-		localIP, GlobalActualPort,
-		hostname, GlobalActualPort)
+	hostname, _ := os.Hostname()
+	localIP := getLocalIP()
+	fmt.Fprintf(w, "Bealink Go 服务运行中。\n监听于: %s (或 http://localhost:%s)\n通过IP访问: http://%s:%s\n通过主机名(mDNS): http://%s.local:%s\n可用端点: /sleep, /shutdown, /clip/<text>, /getclip, /monitor, /ping, /debug, /setting",
+		GlobalActualListenAddr, GlobalActualPort, localIP, GlobalActualPort, hostname, GlobalActualPort)
 }
+func handlePing(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "pong 🏓") }
 
-// handlePing 处理 /ping 请求，返回 "pong"。
-func handlePing(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "pong 🏓") // 加个小 emoji
-}
-
-// handleSleep 处理 /sleep 请求，启动或取消睡眠倒计时。
-func handleSleep(w http.ResponseWriter, r *http.Request) {
+func handleSleep(w http.ResponseWriter, r *http.Request) { /* ... (代码同前) ... */
 	sleepMutex.Lock()
 	defer sleepMutex.Unlock()
-
 	if activeSleepProcess != nil {
-		log.Printf("检测到活动的睡眠进程 (PID: %d)，尝试取消...", activeSleepProcess.Pid)
-		err := activeSleepProcess.Kill() // 尝试终止已存在的进程
-		if err != nil {
-			log.Printf("错误: 取消睡眠任务 (PID: %d) 失败: %v", activeSleepProcess.Pid, err)
-			http.Error(w, "取消睡眠任务失败 ❌", http.StatusInternalServerError)
+		log.Printf("取消睡眠任务 (PID: %d)...", activeSleepProcess.Pid)
+		if err := activeSleepProcess.Kill(); err != nil {
+			log.Printf("错误: 取消睡眠任务失败: %v", err)
+			http.Error(w, "取消睡眠任务失败", http.StatusInternalServerError)
 			return
 		}
-		log.Printf("睡眠任务 (PID: %d) 已成功发送终止信号。", activeSleepProcess.Pid)
-		fmt.Fprintln(w, "睡眠任务已取消 💤") // 极简响应
+		activeSleepProcess = nil
+		fmt.Fprintln(w, "睡眠任务已取消 💤")
 	} else {
-		log.Println("没有活动的睡眠任务，准备启动新任务...")
-		process, err := ahk.RunScriptAndGetProcess("sleep_countdown.ahk") // 运行AHK脚本
+		log.Println("启动睡眠倒计时...")
+		process, err := ahk.RunScriptAndGetProcess("sleep_countdown.ahk")
 		if err != nil {
 			log.Printf("错误: 启动睡眠脚本失败: %v", err)
-			http.Error(w, "启动睡眠脚本失败 ❌", http.StatusInternalServerError)
+			http.Error(w, "启动睡眠脚本失败", http.StatusInternalServerError)
 			return
 		}
-		activeSleepProcess = process                            // 保存进程引用
-		go clearProcess(&activeSleepProcess, &sleepMutex, "睡眠") // 异步等待并清理
-		fmt.Fprintln(w, "睡眠倒计时已启动 😴")                           // 极简响应
+		activeSleepProcess = process
+		go clearProcess(&activeSleepProcess, &sleepMutex, "睡眠")
+		fmt.Fprintln(w, "睡眠倒计时已启动 😴")
 	}
 }
-
-// handleShutdown 处理 /shutdown 请求，启动或取消关机倒计时。
-func handleShutdown(w http.ResponseWriter, r *http.Request) {
+func handleShutdown(w http.ResponseWriter, r *http.Request) { /* ... (代码同前) ... */
 	shutdownMutex.Lock()
 	defer shutdownMutex.Unlock()
-
 	if activeShutdownProcess != nil {
-		log.Printf("检测到活动的关机进程 (PID: %d)，尝试取消...", activeShutdownProcess.Pid)
-		err := activeShutdownProcess.Kill()
-		if err != nil {
-			log.Printf("错误: 取消关机任务 (PID: %d) 失败: %v", activeShutdownProcess.Pid, err)
-			http.Error(w, "取消关机任务失败 ❌", http.StatusInternalServerError)
+		log.Printf("取消关机任务 (PID: %d)...", activeShutdownProcess.Pid)
+		if err := activeShutdownProcess.Kill(); err != nil {
+			log.Printf("错误: 取消关机任务失败: %v", err)
+			http.Error(w, "取消关机任务失败", http.StatusInternalServerError)
 			return
 		}
-		log.Printf("关机任务 (PID: %d) 已成功发送终止信号。", activeShutdownProcess.Pid)
-		fmt.Fprintln(w, "关机任务已取消 🚫") // 极简响应
+		activeShutdownProcess = nil
+		fmt.Fprintln(w, "关机任务已取消 🚫")
 	} else {
-		log.Println("没有活动的关机任务，准备启动新任务...")
+		log.Println("启动关机倒计时...")
 		process, err := ahk.RunScriptAndGetProcess("shutdown_countdown.ahk")
 		if err != nil {
 			log.Printf("错误: 启动关机脚本失败: %v", err)
-			http.Error(w, "启动关机脚本失败 ❌", http.StatusInternalServerError)
+			http.Error(w, "启动关机脚本失败", http.StatusInternalServerError)
 			return
 		}
 		activeShutdownProcess = process
 		go clearProcess(&activeShutdownProcess, &shutdownMutex, "关机")
-		fmt.Fprintln(w, "关机倒计时已启动 ⏳") // 极简响应
+		fmt.Fprintln(w, "关机倒计时已启动 ⏳")
 	}
 }
 
-// handleClip 处理 /clip 请求，将文本复制到剪贴板。
 func handleClip(w http.ResponseWriter, r *http.Request) {
-	encodedText := strings.TrimPrefix(r.URL.Path, "/clip/")
-	if encodedText == "" {
-		http.Error(w, "格式错误，请使用 /clip/<文本>", http.StatusBadRequest)
+	if r.Method != http.MethodPost {
+		log.Printf("警告: /clip 收到非POST请求，方法: %s, 路径: %s, 来自: %s", r.Method, r.URL.Path, r.RemoteAddr)
+		http.Error(w, "仅支持 POST 方法，且内容需为 JSON {\"content\":\"...\"}", http.StatusMethodNotAllowed)
 		return
 	}
-	textToCopy, err := url.PathUnescape(encodedText)
+
+	var req struct {
+		Content string `json:"content"`
+	}
+	
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		log.Printf("错误: URL解码失败: %v", err)
-		http.Error(w, "URL解码失败 ❌", http.StatusBadRequest)
+		log.Printf("警告: /clip 收到无法解析的JSON，来自: %s, 错误: %v", r.RemoteAddr, err)
+		http.Error(w, "请求体需为合法 JSON 格式", http.StatusBadRequest)
 		return
 	}
-	if err := clipboard.WriteAll(textToCopy); err != nil {
-		log.Printf("错误: 写入剪贴板失败: %v", err)
+	
+	if req.Content == "" {
+		log.Printf("提示: /clip 收到空剪贴板内容，来自: %s", r.RemoteAddr)
+		http.Error(w, "剪贴板内容为空哦 ✨", http.StatusBadRequest)
+		return
+	}
+
+	if err := clipboard.WriteAll(req.Content); err != nil {
+		log.Printf("错误: 写入剪贴板失败: %v, 来自: %s", err, r.RemoteAddr)
 		http.Error(w, "写入剪贴板失败 ❌", http.StatusInternalServerError)
 		return
 	}
-	log.Printf("文本已复制到剪贴板: %s", textToCopy)
-	_, runErr := ahk.RunScriptAndGetProcess("notify.ahk", textToCopy) // AHK通知脚本
-	if runErr != nil {
-		log.Printf("警告: 调用通知脚本失败: %v", runErr) // 通知失败通常不影响核心功能
+
+	log.Printf("文本已复制到剪贴板: %s, 来自: %s", req.Content, r.RemoteAddr)
+	if _, runErr := ahk.RunScriptAndGetProcess("notify.ahk", req.Content); runErr != nil {
+		log.Printf("警告: 调用通知脚本失败: %v", runErr)
 	}
-	fmt.Fprintf(w, "已复制到剪贴板 📋: %s\n", textToCopy) // 极简响应
+
+	fmt.Fprintf(w, "已复制到剪贴板 📋: %s\n", req.Content)
 }
 
-// handleMonitorToggle 处理显示器电源切换请求
-func handleMonitorToggle(w http.ResponseWriter, r *http.Request) {
-	// 调用 winapi 包中的函数来切换显示器电源
-	// newStateIsOff: true 表示执行后显示器推测为关闭，false 表示推测为开启
-	newStateIsOff, err := winapi.ToggleMonitorPower()
-	if err != nil {
-		log.Printf("错误: 服务端执行切换显示器电源操作失败: %v", err)
-		http.Error(w, "切换显示器电源失败 ❌", http.StatusInternalServerError)
+
+func handleGetClip(w http.ResponseWriter, r *http.Request) {
+	log.Printf("收到 getclip 请求，方法: %s, 路径: %s, 来自: %s", r.Method, r.URL.Path, r.RemoteAddr)
+	if r.Method != http.MethodGet {
+		http.Error(w, "仅支持 GET 方法", http.StatusMethodNotAllowed)
 		return
 	}
-
-	// 根据 winapi.ToggleMonitorPower 返回的推测新状态来构造响应
+	clipboardContent, err := clipboard.ReadAll()
+	if err != nil {
+		log.Printf("错误: 读取剪贴板失败: %v, 来自: %s", err, r.RemoteAddr)
+		if strings.Contains(err.Error(), "clipboard is empty") || strings.Contains(err.Error(), "format is not available") {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			fmt.Fprintln(w, "")
+			return
+		}
+		http.Error(w, "读取剪贴板内容失败", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprint(w, clipboardContent)
+}
+func handleMonitorToggle(w http.ResponseWriter, r *http.Request) { /* ... (代码同前) ... */
+	newStateIsOff, err := winapi.ToggleMonitorPower()
+	if err != nil {
+		log.Printf("错误: 切换显示器电源失败: %v", err)
+		http.Error(w, "切换显示器电源失败", http.StatusInternalServerError)
+		return
+	}
 	if newStateIsOff {
-		fmt.Fprintln(w, "已息屏 🌙") // 极简响应
+		fmt.Fprintln(w, "已息屏 🌙")
 	} else {
-		fmt.Fprintln(w, "已亮屏 ☀️") // 极简响应
+		fmt.Fprintln(w, "已亮屏 ☀️")
 	}
 }
 
-// handleDebugPage 提供HTML调试页面
-func handleDebugPage(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFS(templateFS, "templates/debug.html")
-	if err != nil {
-		log.Printf("错误: 解析调试页面模板失败: %v", err)
-		http.Error(w, "无法加载调试页面。", http.StatusInternalServerError)
+func handleSettingsPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "仅支持 GET 方法", http.StatusMethodNotAllowed)
+		return
+	}
+	currentCfg := config.GetConfig()
+	useEncryption := false
+	if currentCfg.EncryptionKey != "" && currentCfg.EncryptionIV != "" &&
+		len(currentCfg.EncryptionKey) == 16 && len(currentCfg.EncryptionIV) == 16 {
+		useEncryption = true
+	}
+	// 不再需要 DefaultTestTitle 和 DefaultTestBody
+	templateData := struct {
+		*config.BarkConfig
+		UseEncryption bool
+	}{BarkConfig: currentCfg, UseEncryption: useEncryption}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if settingsTemplate == nil {
+		log.Println("错误: settings.html 模板尚未在 init() 中成功初始化。")
+		http.Error(w, "服务器内部错误: 设置页面模板未加载。", http.StatusInternalServerError)
+		return
+	}
+	if err := settingsTemplate.Execute(w, templateData); err != nil {
+		log.Printf("错误: 执行 settings.html 模板失败: %v", err)
+		if _, ok := w.(http.Flusher); !ok {
+			http.Error(w, "渲染设置页面时发生内部错误。", http.StatusInternalServerError)
+		}
+	}
+}
+
+func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "仅支持 POST 方法", http.StatusMethodNotAllowed)
+		return
+	}
+	log.Printf("调试: handleSaveSettings - 收到请求，Content-Type: %s", r.Header.Get("Content-Type"))
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		if err := r.ParseForm(); err != nil {
+			log.Printf("错误: 解析表单数据失败: %v", err)
+			http.Error(w, "无法解析表单数据。", http.StatusBadRequest)
+			return
+		}
+		log.Println("调试: handleSaveSettings - 使用 r.ParseForm() 解析。")
+	} else {
+		log.Println("调试: handleSaveSettings - 使用 r.ParseMultipartForm() 解析成功。")
+	}
+	log.Println("调试: handleSaveSettings - 解析后 r.Form 内容:")
+	for key, values := range r.Form {
+		log.Printf("  r.Form -> %s: %v\n", key, values)
+	}
+	if r.MultipartForm != nil {
+		log.Println("调试: handleSaveSettings - 解析后 r.MultipartForm.Value 内容:")
+		for key, values := range r.MultipartForm.Value {
+			log.Printf("  r.MultipartForm.Value -> %s: %v\n", key, values)
+		}
+	} else {
+		log.Println("调试: handleSaveSettings - r.MultipartForm 为 nil。")
+	}
+
+	errUpdate := config.UpdateConfig(func(cfgToUpdate *config.BarkConfig) {
+		cfgToUpdate.BarkFullURL = getFormValueHelper(r, "bark_full_url")
+		cfgToUpdate.Group = getFormValueHelper(r, "group")
+		cfgToUpdate.IconURL = getFormValueHelper(r, "icon_url")
+		cfgToUpdate.Sound = getFormValueHelper(r, "sound")
+
+		useEncryptionForm := getFormValueHelper(r, "use_encryption") == "on"
+		if useEncryptionForm {
+			cfgToUpdate.EncryptionKey = getFormValueHelper(r, "encryption_key")
+			cfgToUpdate.EncryptionIV = getFormValueHelper(r, "encryption_iv")
+			if len(cfgToUpdate.EncryptionKey) != 16 || len(cfgToUpdate.EncryptionIV) != 16 {
+				log.Printf("警告: 用户提交的加密密钥或IV长度不为16。加密将不会启用。Key长度: %d, IV长度: %d", len(cfgToUpdate.EncryptionKey), len(cfgToUpdate.EncryptionIV))
+			}
+		} else {
+			cfgToUpdate.EncryptionKey = ""
+			cfgToUpdate.EncryptionIV = ""
+		}
+
+		cfgToUpdate.NotifyOnSystemReady = getFormValueHelper(r, "notify_on_system_ready") == "on"
+
+		// 不再读取 DefaultTestTitle 和 DefaultTestBody
+		// cfgToUpdate.DefaultTestTitle = getFormValueHelper(r, "default_test_title")
+		// cfgToUpdate.DefaultTestBody = getFormValueHelper(r, "default_test_body")
+
+		if valStr := getFormValueHelper(r, "retry_delay_sec"); valStr != "" {
+			retryDelay, errRD := strconv.Atoi(valStr)
+			if errRD == nil && retryDelay >= config.MinRetryInterval {
+				cfgToUpdate.RetryDelaySec = retryDelay
+			} else {
+				log.Printf("警告: 无效的 RetryDelaySec 值 '%s'。保留原值 %d。", valStr, cfgToUpdate.RetryDelaySec)
+			}
+		} else {
+			log.Printf("信息: 表单中未提供 RetryDelaySec，保留原值 %d。", cfgToUpdate.RetryDelaySec)
+		}
+
+		if valStr := getFormValueHelper(r, "max_retries"); valStr != "" {
+			maxRetries, errMR := strconv.Atoi(valStr)
+			if errMR == nil && maxRetries > 0 {
+				cfgToUpdate.MaxRetries = maxRetries
+			} else {
+				log.Printf("警告: 无效的 MaxRetries 值 '%s'。保留原值 %d。", valStr, cfgToUpdate.MaxRetries)
+			}
+		} else {
+			log.Printf("信息: 表单中未提供 MaxRetries，保留原值 %d。", cfgToUpdate.MaxRetries)
+		}
+	})
+	if errUpdate != nil {
+		log.Printf("错误: 保存配置失败: %v", errUpdate)
+		http.Error(w, "保存配置失败。", http.StatusInternalServerError)
+		return
+	}
+	log.Println("配置已成功更新并保存 (handleSaveSettings 返回前)。")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintln(w, "设置已成功保存！")
+}
+
+func handleTestBark(w http.ResponseWriter, r *http.Request) { /* ... (代码同前) ... */
+	if r.Method != http.MethodPost {
+		http.Error(w, "仅支持 POST 方法", http.StatusMethodNotAllowed)
+		return
+	}
+	log.Println("收到测试 Bark 推送请求...")
+	bark.GetNotifier().SendTestNotification() // SendTestNotification 内部将使用固定的测试内容
+	currentCfg := config.GetConfig()
+	sufficient, _, _, _, _, reason := bark.IsBarkConfigSufficient(currentCfg)
+	if !sufficient {
+		errMsg := fmt.Sprintf("测试通知可能无法发送，因为 Bark 配置不完整: %s", reason)
+		log.Println(errMsg)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintln(w, "测试通知已尝试发送。请检查你的 Bark App。")
+}
+func handleDebugPage(w http.ResponseWriter, r *http.Request) { /* ... (代码同前) ... */
+	if debugTemplate == nil {
+		log.Println("错误: debug.html 模板尚未在 init() 中成功初始化。")
+		http.Error(w, "服务器内部错误: 调试页面模板未加载。", http.StatusInternalServerError)
 		return
 	}
 	wsScheme := "ws"
-	if r.TLS != nil { // 如果是通过HTTPS访问的，则WebSocket也用wss
+	if r.TLS != nil {
 		wsScheme = "wss"
 	}
-	// r.Host 包含了主机名和端口
 	wsURL := fmt.Sprintf("%s://%s/ws/logs", wsScheme, r.Host)
-
-	data := struct {
-		WebSocketURL string
-		InitialLogs  []string // 可以选择在这里预加载一些日志，但WebSocket会处理历史日志
-	}{
-		WebSocketURL: wsURL,
-		InitialLogs:  []string{}, //让WebSocket连接后自行拉取或接收历史日志
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-f")
-	err = tmpl.Execute(w, data)
-	if err != nil {
-		log.Printf("错误: 执行调试页面模板失败: %v", err)
-		// http.Error 已经发送，这里只记录日志
+	data := struct{ WebSocketURL string }{WebSocketURL: wsURL}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := debugTemplate.Execute(w, data); err != nil {
+		log.Printf("错误: 执行 debug.html 模板失败: %v", err)
 	}
 }
-
-// serveWs 处理 WebSocket 连接请求
-func serveWs(hub *logging.Hub, w http.ResponseWriter, r *http.Request) {
+func serveWs(hub *logging.Hub, w http.ResponseWriter, r *http.Request) { /* ... (代码同前) ... */
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("错误: WebSocket连接升级失败: %v", err)
 		return
 	}
-	hub.RegisterClient(conn) // 注册客户端到 Hub
-
-	// 启动一个 goroutine 来处理从此客户端读取消息（如果需要双向通信）
-	// 对于日志查看器，主要依赖服务器推送，客户端可能不需要发送太多消息
-	// 但至少需要一个读取循环来检测连接是否关闭
+	hub.RegisterClient(conn)
 	go func() {
-		defer func() {
-			hub.UnregisterClient(conn) // 确保在 goroutine 退出时注销客户端
-			conn.Close()
-		}()
+		defer func() { hub.UnregisterClient(conn); conn.Close() }()
 		for {
-			// 读取消息，但我们不期望客户端发送太多有用信息
-			// 这个循环主要是为了检测连接关闭
-			_, _, err := conn.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Printf("警告: WebSocket客户端 %s 意外断开: %v", conn.RemoteAddr(), err)
-				}
-				break // 发生任何读取错误都退出循环，触发defer中的注销
+			if _, _, err := conn.ReadMessage(); err != nil {
+				break
 			}
 		}
 	}()

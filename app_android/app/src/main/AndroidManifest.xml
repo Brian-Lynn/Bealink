@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!--
+        对于 Android 12 (API 31) 及更高版本，如果 JmDNS 需要在后台精确运行，
+        可能需要 NEARBY_WIFI_DEVICES 权限，并处理相应的运行时权限请求。
+        但对于前台应用，ACCESS_WIFI_STATE 通常足够。
+        <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+                         android:usesPermissionFlags="neverForLocation" />
+    -->
+
+
+    <application
+        android:name=".BealinkApplication"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Bealink"
+        android:usesCleartextTraffic="true"
+        tools:targetApi="31">
+        <!--
+             android:usesCleartextTraffic="true" 是为了允许 HTTP 请求到 .local 地址。
+             在生产环境中，如果可能，应优先使用 HTTPS。
+             对于局域网控制，HTTP 通常是可接受的。
+        -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Bealink">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

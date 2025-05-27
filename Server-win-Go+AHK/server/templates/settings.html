@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bealink 设置</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .form-section { margin-bottom: 2rem; padding: 1.5rem; background-color: #f9fafb; border-radius: 0.5rem; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06); }
+        .form-section h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; color: #111827; }
+        .form-label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: #374151; }
+        .form-input, .form-select { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; box-shadow: inset 0 1px 2px 0 rgba(0,0,0,0.05); }
+        .form-input:focus, .form-select:focus { outline: 2px solid transparent; outline-offset: 2px; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(59,130,246,0.5); }
+        .form-checkbox { margin-right: 0.5rem; border-radius: 0.25rem; border-color: #d1d5db; color: #2563eb; }
+        .form-checkbox:focus { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 3px rgba(59,130,246,0.5); }
+        .button { padding: 0.75rem 1.5rem; border-radius: 0.375rem; font-weight: 600; color: white; cursor: pointer; transition: background-color 0.2s; }
+        .button-primary { background-color: #2563eb; } .button-primary:hover { background-color: #1d4ed8; }
+        .button-secondary { background-color: #4b5563; } .button-secondary:hover { background-color: #374151; }
+        .button-link { background-color: #10b981; } .button-link:hover { background-color: #059669; }
+        .description-text { font-size: 0.875rem; color: #6b7280; margin-top: 0.25rem; }
+        .optional-settings-block, #encryption-settings { margin-top: 1rem; padding-left: 1rem; border-left: 2px solid #e5e7eb; }
+    </style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8">
+    <div class="max-w-2xl mx-auto bg-white p-6 md:p-8 rounded-xl shadow-xl">
+        <h1 class="text-3xl font-bold mb-6 text-gray-800">Bealink 服务设置</h1>
+
+        <form id="settings-form" method="POST" action="/setting">
+            <div class="form-section">
+                <h2>Bark 推送</h2>
+                <div>
+                    <label for="bark_full_url" class="form-label">推送 URL (包含设备Key):</label>
+                    <input type="url" id="bark_full_url" name="bark_full_url" value="{{.BarkFullURL}}" class="form-input" placeholder="例如: https://api.day.app/YOUR_DEVICE_KEY/">
+                    <p class="description-text">填写此 URL 以启用 Bark 推送功能。</p>
+                </div>
+
+                <div class="mt-6">
+                    <label for="show_optional_bark_settings" class="inline-flex items-center">
+                        <input type="checkbox" id="show_optional_bark_settings" class="form-checkbox h-5 w-5" onchange="toggleOptionalBarkSettings()">
+                        <span class="ml-2 text-gray-700 font-medium">自定义可选参数</span>
+                    </label>
+                </div>
+
+                <div id="optional-bark-settings" class="optional-settings-block hidden">
+                    <p class="description-text mb-2">以下为可选参数，留空则使用 Bark 默认值。</p>
+                    <div class="mt-4">
+                        <label for="group" class="form-label">分组名:</label>
+                        <input type="text" id="group" name="group" value="{{.Group}}" class="form-input" placeholder="例如: Bealink">
+                    </div>
+                    <div class="mt-4">
+                        <label for="icon_url" class="form-label">图标 URL:</label>
+                        <input type="url" id="icon_url" name="icon_url" value="{{.IconURL}}" class="form-input" placeholder="例如: https://example.com/icon.png">
+                    </div>
+                    <div class="mt-4">
+                        <label for="sound" class="form-label">铃声:</label>
+                        <input type="text" id="sound" name="sound" value="{{.Sound}}" class="form-input" placeholder="例如: glass, bell">
+                    </div>
+                </div>
+
+                <div class="mt-6">
+                    <label for="use_encryption" class="inline-flex items-center">
+                        <input type="checkbox" id="use_encryption" name="use_encryption" class="form-checkbox h-5 w-5" {{if .UseEncryption}}checked{{end}} onchange="toggleEncryptionSettings()">
+                        <span class="ml-2 text-gray-700 font-medium">加密</span>
+                    </label>
+                </div>
+
+                <div id="encryption-settings" class="{{if not .UseEncryption}}hidden{{end}}">
+                    <p class="description-text mb-2">如果启用，请填写16位ASCII字符的密钥和IV。</p>
+                    <div>
+                        <label for="encryption_key" class="form-label">KEY:</label>
+                        <input type="text" id="encryption_key" name="encryption_key" value="{{.EncryptionKey}}" class="form-input">
+                    </div>
+                    <div class="mt-4">
+                        <label for="encryption_iv" class="form-label">IV:</label>
+                        <input type="text" id="encryption_iv" name="encryption_iv" value="{{.EncryptionIV}}" class="form-input">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h2>通知触发</h2>
+                <div>
+                    <label for="notify_on_system_ready" class="inline-flex items-center">
+                        <input type="checkbox" id="notify_on_system_ready" name="notify_on_system_ready" class="form-checkbox h-5 w-5" {{if .NotifyOnSystemReady}}checked{{end}}>
+                        <span class="ml-2 text-gray-700 font-medium">系统就绪时发送通知 (启动/唤醒)</span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="mt-8 flex flex-col sm:flex-row justify-between items-center">
+                <button type="submit" class="button button-primary w-full sm:w-auto mb-2 sm:mb-0">保存设置</button>
+                <div class="flex flex-col sm:flex-row">
+                     <button type="button" onclick="window.location.href='/debug'" class="button button-link w-full sm:w-auto mb-2 sm:mb-0 sm:ml-2">调试日志</button>
+                    <button type="button" onclick="testBarkNotification()" class="button button-secondary w-full sm:w-auto sm:ml-2">测试推送</button>
+                </div>
+            </div>
+        </form>
+        <div id="message-area" class="mt-6 p-4 rounded-md text-sm"></div>
+    </div>
+
+    <script>
+        function toggleOptionalBarkSettings() {
+            const checkbox = document.getElementById('show_optional_bark_settings');
+            const settingsDiv = document.getElementById('optional-bark-settings');
+            if (checkbox.checked) {
+                settingsDiv.classList.remove('hidden');
+            } else {
+                settingsDiv.classList.add('hidden');
+            }
+        }
+
+        function toggleEncryptionSettings() {
+            const checkbox = document.getElementById('use_encryption');
+            const settingsDiv = document.getElementById('encryption-settings');
+            if (checkbox.checked) {
+                settingsDiv.classList.remove('hidden');
+            } else {
+                settingsDiv.classList.add('hidden');
+            }
+        }
+
+        const form = document.getElementById('settings-form');
+        const messageArea = document.getElementById('message-area');
+        form.addEventListener('submit', async function(event) {
+            event.preventDefault(); 
+            const formData = new FormData(form);
+            // 确保 checkbox 的值被正确处理（如果未勾选，FormData 可能不包含该字段）
+            // 后端 Go 代码在解析时会处理字段不存在的情况（视为空或false）
+            if (!document.getElementById('show_optional_bark_settings').checked) {
+                formData.delete('group'); formData.delete('icon_url'); formData.delete('sound');
+            }
+            if (!document.getElementById('use_encryption').checked) {
+                formData.delete('encryption_key'); formData.delete('encryption_iv');
+            }
+
+            messageArea.textContent = '正在保存...';
+            messageArea.className = 'mt-6 p-4 rounded-md text-sm bg-blue-100 text-blue-700';
+            try {
+                const response = await fetch('/setting', { method: 'POST', body: formData });
+                const resultText = await response.text();
+                if (response.ok) {
+                    messageArea.textContent = resultText || '设置已成功保存！';
+                    messageArea.className = 'mt-6 p-4 rounded-md text-sm bg-green-100 text-green-700';
+                } else {
+                    messageArea.textContent = '保存失败: ' + (resultText || response.statusText);
+                    messageArea.className = 'mt-6 p-4 rounded-md text-sm bg-red-100 text-red-700';
+                }
+            } catch (error) {
+                messageArea.textContent = '保存设置时发生网络错误: ' + error.message;
+                messageArea.className = 'mt-6 p-4 rounded-md text-sm bg-red-100 text-red-700';
+            }
+            setTimeout(() => { messageArea.textContent = ''; messageArea.className = 'mt-6 p-4 rounded-md text-sm'; }, 5000);
+        });
+
+        async function testBarkNotification() {
+            messageArea.textContent = '正在发送测试通知...';
+            messageArea.className = 'mt-6 p-4 rounded-md text-sm bg-blue-100 text-blue-700';
+            try {
+                const response = await fetch('/test_bark', { method: 'POST' });
+                const resultText = await response.text();
+                if (response.ok) {
+                    messageArea.textContent = resultText || '测试通知已发送！请检查你的 Bark App。';
+                    messageArea.className = 'mt-6 p-4 rounded-md text-sm bg-green-100 text-green-700';
+                } else {
+                    messageArea.textContent = '测试通知发送失败: ' + (resultText || response.statusText);
+                    messageArea.className = 'mt-6 p-4 rounded-md text-sm bg-red-100 text-red-700';
+                }
+            } catch (error) {
+                 messageArea.textContent = '发送测试通知时发生网络错误: ' + error.message;
+                messageArea.className = 'mt-6 p-4 rounded-md text-sm bg-red-100 text-red-700';
+            }
+            setTimeout(() => { messageArea.textContent = ''; messageArea.className = 'mt-6 p-4 rounded-md text-sm'; }, 7000);
+        }
+        // 初始化时调用，确保基于当前配置正确显示/隐藏相关部分
+        document.addEventListener('DOMContentLoaded', () => {
+            toggleOptionalBarkSettings(); // 根据初始状态决定是否显示可选参数
+            toggleEncryptionSettings();   // 根据初始状态决定是否显示加密设置
+            // 检查可选参数复选框的初始状态，如果 Group, IconURL, Sound 有一个不为空，则勾选它
+            const groupVal = document.getElementById('group').value;
+            const iconVal = document.getElementById('icon_url').value;
+            const soundVal = document.getElementById('sound').value;
+            if (groupVal || iconVal || soundVal) {
+                document.getElementById('show_optional_bark_settings').checked = true;
+                toggleOptionalBarkSettings();
+            }
+        });
+    </script>
+</body>
+</html>

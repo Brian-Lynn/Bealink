@@ -1,0 +1,19 @@
+// 文件路径: settings.gradle
+
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        // JmDNS 可能在 jcenter 或其他地方，但 mavenCentral 通常有较新版本
+    }
+}
+rootProject.name = "Bealink"
+include ':app'

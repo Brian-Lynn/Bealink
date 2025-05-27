@@ -35,3 +35,16 @@ Server-win-Go+AHK/InstallerSource/server/templates/debug.html
 Server-win-Go+AHK/InstallerSource/winapi/monitor.go
 Server-win-Go+AHK/InstallerSource/winapi/registry.go
 Server-win-Go+AHK/bealinkserver.exe
+Server-win-Go+AHK/InstallerSource/Bealink.exe
+Server-win-Go+AHK/BeaLink.exe
+Bealink Win Portable/AutoHotkey.exe
+Bealink Win Portable/Bealink.exe
+Bealink Win Portable/icon.ico
+Bealink Win Portable/script/notify.ahk
+Bealink Win Portable/script/shutdown_countdown.ahk
+Bealink Win Portable/script/sleep_countdown.ahk
+Server-win-Go+AHK/InstallerSource/OutputInstaller/BeaLink_Installer_v1.9.5_32bit.exe
+Server-win-Go+AHK/InstallerSource/OutputInstaller/BeaLink_Installer_v1.9.5.exe
+Server-win-Go+AHK/InstallerSource/script/notify.ahk
+Server-win-Go+AHK/InstallerSource/script/shutdown_countdown.ahk
+Server-win-Go+AHK/InstallerSource/script/sleep_countdown.ahk
