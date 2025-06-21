@@ -149,7 +149,7 @@ func (bn *BarkNotifier) SendNotification(eventType string, title, body string, c
 	bn.mu.Lock()
 	if eventType != "test" { // 测试通知不受频率限制
 		lastTime, found := bn.lastNotifyTimes[eventType]
-		if found && time.Since(lastTime) < 1*time.Minute {
+		if found && time.Since(lastTime) < 2*time.Second {
 			log.Printf("Bark 通知 (事件: %s) 触发过于频繁，已跳过。", eventType)
 			bn.mu.Unlock()
 			return
