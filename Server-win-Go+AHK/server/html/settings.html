@@ -8,41 +8,11 @@
     <meta name="theme-color" content="#f9fafb" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
     <title>Bealink 设置</title>
-    <!-- Favicon and Apple Touch Icon -->
-    <link rel="icon" type="image/x-icon" sizes="180x180" href="/icon.ico?theme=light">
-    <link rel="icon" type="image/x-icon" href="/icon.ico?theme=light">
-    <link rel="apple-touch-icon" sizes="180x180" href="/icon.ico?theme=light">
-    <link rel="apple-touch-icon" href="/icon.ico?theme=light">
-    <!-- Dynamic icon update script -->
-    <script>
-        (function() {
-            function updateIcons() {
-                const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                const theme = isDark ? 'dark' : 'light';
-                const iconUrl = '/icon.ico?theme=' + theme;
-                
-                let link = document.querySelector("link[rel*='icon']:not([rel='apple-touch-icon'])");
-                if (link) link.href = iconUrl;
-                
-                let appleLink = document.querySelector("link[rel='apple-touch-icon']");
-                if (appleLink) {
-                    appleLink.href = iconUrl;
-                } else {
-                    appleLink = document.createElement('link');
-                    appleLink.rel = 'apple-touch-icon';
-                    appleLink.href = iconUrl;
-                    document.head.appendChild(appleLink);
-                }
-            }
-            updateIcons();
-            const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-            if (mediaQuery.addEventListener) {
-                mediaQuery.addEventListener('change', updateIcons);
-            } else if (mediaQuery.addListener) {
-                mediaQuery.addListener(updateIcons);
-            }
-        })();
-    </script>
+    <!-- Favicon and Apple Touch Icon - Always use dark icon -->
+    <link rel="icon" type="image/x-icon" sizes="180x180" href="/icon.ico">
+    <link rel="icon" type="image/x-icon" href="/icon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon.ico">
+    <link rel="apple-touch-icon" href="/icon.ico">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -75,44 +45,31 @@
                 </div>
 
                 <div class="mt-6">
-                    <label for="show_optional_bark_settings" class="inline-flex items-center">
-                        <input type="checkbox" id="show_optional_bark_settings" class="form-checkbox h-5 w-5" onchange="toggleOptionalBarkSettings()">
-                        <span class="ml-2 text-gray-700 font-medium">自定义可选参数</span>
-                    </label>
-                </div>
-
-                <div id="optional-bark-settings" class="optional-settings-block hidden">
-                    <p class="description-text mb-2">以下为可选参数，留空则使用 Bark 默认值。</p>
-                    <div class="mt-4">
-                        <label for="group" class="form-label">分组名:</label>
-                        <input type="text" id="group" name="group" value="{{.Group}}" class="form-input" placeholder="例如: Bealink">
-                    </div>
-                    <div class="mt-4">
-                        <label for="icon_url" class="form-label">图标 URL:</label>
-                        <input type="url" id="icon_url" name="icon_url" value="{{.IconURL}}" class="form-input" placeholder="例如: https://example.com/icon.png">
-                    </div>
-                    <div class="mt-4">
-                        <label for="sound" class="form-label">铃声:</label>
-                        <input type="text" id="sound" name="sound" value="{{.Sound}}" class="form-input" placeholder="例如: glass, bell">
-                    </div>
-                </div>
-
-                <div class="mt-6">
                     <label for="use_encryption" class="inline-flex items-center">
                         <input type="checkbox" id="use_encryption" name="use_encryption" class="form-checkbox h-5 w-5" {{if .UseEncryption}}checked{{end}} onchange="toggleEncryptionSettings()">
-                        <span class="ml-2 text-gray-700 font-medium">加密</span>
+                        <span class="ml-2 text-gray-700 font-medium">高级设置 (铃声 & 加密)</span>
                     </label>
                 </div>
 
-                <div id="encryption-settings" class="{{if not .UseEncryption}}hidden{{end}}">
-                    <p class="description-text mb-2">如果启用，请填写16位ASCII字符的密钥和IV。</p>
+                <div id="advanced-settings" class="{{if not .UseEncryption}}hidden{{end}} optional-settings-block">
+                    <div class="mt-4">
+                        <label for="sound" class="form-label">铃声:</label>
+                        <select id="sound" name="sound" class="form-select">
+                            <option value="">-- 默认 --</option>
+                            {{range .SoundOptions}}
+                            <option value="{{.}}" {{if eq . $.Sound}}selected{{end}}>{{.}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+
+                    <p class="description-text mt-4 mb-2">启用加密：填写16位ASCII字符的密钥和IV。</p>
                     <div>
-                        <label for="encryption_key" class="form-label">KEY:</label>
-                        <input type="text" id="encryption_key" name="encryption_key" value="{{.EncryptionKey}}" class="form-input">
+                        <label for="encryption_key" class="form-label">加密KEY:</label>
+                        <input type="text" id="encryption_key" name="encryption_key" value="{{.EncryptionKey}}" class="form-input" maxlength="16" placeholder="16个ASCII字符">
                     </div>
                     <div class="mt-4">
-                        <label for="encryption_iv" class="form-label">IV:</label>
-                        <input type="text" id="encryption_iv" name="encryption_iv" value="{{.EncryptionIV}}" class="form-input">
+                        <label for="encryption_iv" class="form-label">加密IV:</label>
+                        <input type="text" id="encryption_iv" name="encryption_iv" value="{{.EncryptionIV}}" class="form-input" maxlength="16" placeholder="16个ASCII字符">
                     </div>
                 </div>
             </div>
@@ -139,19 +96,9 @@
     </div>
 
     <script>
-        function toggleOptionalBarkSettings() {
-            const checkbox = document.getElementById('show_optional_bark_settings');
-            const settingsDiv = document.getElementById('optional-bark-settings');
-            if (checkbox.checked) {
-                settingsDiv.classList.remove('hidden');
-            } else {
-                settingsDiv.classList.add('hidden');
-            }
-        }
-
         function toggleEncryptionSettings() {
             const checkbox = document.getElementById('use_encryption');
-            const settingsDiv = document.getElementById('encryption-settings');
+            const settingsDiv = document.getElementById('advanced-settings');
             if (checkbox.checked) {
                 settingsDiv.classList.remove('hidden');
             } else {
@@ -164,15 +111,7 @@
         form.addEventListener('submit', async function(event) {
             event.preventDefault(); 
             const formData = new FormData(form);
-            // 确保 checkbox 的值被正确处理（如果未勾选，FormData 可能不包含该字段）
-            // 后端 Go 代码在解析时会处理字段不存在的情况（视为空或false）
-            if (!document.getElementById('show_optional_bark_settings').checked) {
-                formData.delete('group'); formData.delete('icon_url'); formData.delete('sound');
-            }
-            if (!document.getElementById('use_encryption').checked) {
-                formData.delete('encryption_key'); formData.delete('encryption_iv');
-            }
-
+            
             messageArea.textContent = '正在保存...';
             messageArea.className = 'mt-6 p-4 rounded-md text-sm bg-blue-100 text-blue-700';
             try {
@@ -196,7 +135,12 @@
             messageArea.textContent = '正在发送测试通知...';
             messageArea.className = 'mt-6 p-4 rounded-md text-sm bg-blue-100 text-blue-700';
             try {
-                const response = await fetch('/test_bark', { method: 'POST' });
+                const formData = new FormData();
+                const soundElement = document.getElementById('sound');
+                if (soundElement) {
+                    formData.append('sound', soundElement.value);
+                }
+                const response = await fetch('/test_bark', { method: 'POST', body: formData });
                 const resultText = await response.text();
                 if (response.ok) {
                     messageArea.textContent = resultText || '测试通知已发送！请检查你的 Bark App。';
@@ -211,18 +155,9 @@
             }
             setTimeout(() => { messageArea.textContent = ''; messageArea.className = 'mt-6 p-4 rounded-md text-sm'; }, 7000);
         }
-        // 初始化时调用，确保基于当前配置正确显示/隐藏相关部分
+        // 初始化高级设置的显示/隐藏
         document.addEventListener('DOMContentLoaded', () => {
-            toggleOptionalBarkSettings(); // 根据初始状态决定是否显示可选参数
-            toggleEncryptionSettings();   // 根据初始状态决定是否显示加密设置
-            // 检查可选参数复选框的初始状态，如果 Group, IconURL, Sound 有一个不为空，则勾选它
-            const groupVal = document.getElementById('group').value;
-            const iconVal = document.getElementById('icon_url').value;
-            const soundVal = document.getElementById('sound').value;
-            if (groupVal || iconVal || soundVal) {
-                document.getElementById('show_optional_bark_settings').checked = true;
-                toggleOptionalBarkSettings();
-            }
+            toggleEncryptionSettings();
         });
     </script>
 </body>

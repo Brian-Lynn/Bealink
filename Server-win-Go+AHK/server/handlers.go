@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -336,9 +335,8 @@ func handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	// 准备模板数据
 	type SettingsData struct {
 		BarkFullURL         string
-		Group               string
-		IconURL             string
 		Sound               string
+		SoundOptions        []string
 		EncryptionKey       string
 		EncryptionIV        string
 		UseEncryption       bool
@@ -347,9 +345,8 @@ func handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 
 	data := SettingsData{
 		BarkFullURL:         cfg.BarkFullURL,
-		Group:               cfg.Group,
-		IconURL:             cfg.IconURL,
 		Sound:               cfg.Sound,
+		SoundOptions:        bark.SoundOptions,
 		EncryptionKey:       cfg.EncryptionKey,
 		EncryptionIV:        cfg.EncryptionIV,
 		UseEncryption:       cfg.EncryptionKey != "" && cfg.EncryptionIV != "" && len(cfg.EncryptionKey) == 16 && len(cfg.EncryptionIV) == 16,
@@ -405,8 +402,6 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		barkURL := r.PostFormValue("bark_full_url")
 		log.Printf("调试: 从表单接收到的 bark_full_url: '%s'", barkURL)
 		m["bark_full_url"] = barkURL
-		m["group"] = r.PostFormValue("group")
-		m["icon_url"] = r.PostFormValue("icon_url")
 		m["sound"] = r.PostFormValue("sound")
 		m["encryption_key"] = r.PostFormValue("encryption_key")
 		m["encryption_iv"] = r.PostFormValue("encryption_iv")
@@ -425,12 +420,6 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		if v, ok := m["bark_full_url"].(string); ok {
 			log.Printf("调试: 更新 BarkFullURL 从 '%s' 到 '%s'", cfg.BarkFullURL, v)
 			cfg.BarkFullURL = v
-		}
-		if v, ok := m["group"].(string); ok {
-			cfg.Group = v
-		}
-		if v, ok := m["icon_url"].(string); ok {
-			cfg.IconURL = v
 		}
 		if v, ok := m["sound"].(string); ok {
 			cfg.Sound = v
@@ -575,49 +564,32 @@ func handleTestBark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 发送测试推送通知
-	bark.NotifyEvent("test")
+	// 获取当前选择的铃声（如果有提供）
+	selectedSound := r.FormValue("sound")
+	if selectedSound != "" {
+		cfg.Sound = selectedSound
+	}
+
+	// 发送测试推送通知（使用指定或已保存的铃声）
+	bark.NotifyEventWithConfig("test", cfg)
 
 	// 返回成功响应
 	w.Write([]byte(`{"status":"ok","message":"测试通知已发送，请检查你的 Bark App"}`))
 }
 
-// getIconPath 根据系统主题返回对应的图标文件路径
-func getIconPath(isDark bool) string {
+// getIconPath 返回深色图标文件路径
+func getIconPath() string {
 	exePath, err := os.Executable()
 	if err != nil {
 		log.Printf("警告: 获取可执行文件路径失败: %v", err)
 		return ""
 	}
-
-	iconFileName := "light.ico"
-	if isDark {
-		iconFileName = "dark.ico"
-	}
-
-	return filepath.Join(filepath.Dir(exePath), "assets", iconFileName)
+	return filepath.Join(filepath.Dir(exePath), "assets", "dark.ico")
 }
 
-// handleFavicon 处理 favicon.ico 请求（根据系统主题返回对应图标）
+// handleFavicon 返回深色图标
 func handleFavicon(w http.ResponseWriter, r *http.Request) {
-	// 检测系统主题
-	isDark := false
-	if runtime.GOOS == "windows" {
-		var err error
-		isDark, err = winapi.IsDarkMode()
-		if err != nil {
-			log.Printf("警告: 检测系统主题失败: %v，使用默认浅色图标", err)
-		}
-	}
-
-	// 检查查询参数
-	if r.URL.Query().Get("theme") == "dark" {
-		isDark = true
-	} else if r.URL.Query().Get("theme") == "light" {
-		isDark = false
-	}
-
-	iconPath := getIconPath(isDark)
+	iconPath := getIconPath()
 	if iconPath == "" {
 		http.Error(w, "无法确定图标路径", http.StatusInternalServerError)
 		return
@@ -634,26 +606,9 @@ func handleFavicon(w http.ResponseWriter, r *http.Request) {
 	w.Write(iconData)
 }
 
-// handleIconICO 处理 icon.ico 请求（根据系统主题返回对应图标）
+// handleIconICO 返回深色图标
 func handleIconICO(w http.ResponseWriter, r *http.Request) {
-	// 检测系统主题
-	isDark := false
-	if runtime.GOOS == "windows" {
-		var err error
-		isDark, err = winapi.IsDarkMode()
-		if err != nil {
-			log.Printf("警告: 检测系统主题失败: %v，使用默认浅色图标", err)
-		}
-	}
-
-	// 检查查询参数
-	if r.URL.Query().Get("theme") == "dark" {
-		isDark = true
-	} else if r.URL.Query().Get("theme") == "light" {
-		isDark = false
-	}
-
-	iconPath := getIconPath(isDark)
+	iconPath := getIconPath()
 	if iconPath == "" {
 		http.Error(w, "无法确定图标路径", http.StatusInternalServerError)
 		return

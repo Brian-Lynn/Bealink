@@ -23,6 +23,8 @@ const (
 	MinRetryInterval  = 5
 	defaultRetryDelay = 10
 	defaultMaxRetries = 5
+	defaultIconURL    = "https://raw.githubusercontent.com/Brian-Lynn/Bealink/refs/heads/main/Server-win-Go%2BAHK/assets/dark_256.png"
+	defaultGroup      = "Bealink"
 )
 
 // BarkConfig 结构体定义了 Bark 推送所需的配置项
@@ -32,13 +34,7 @@ type BarkConfig struct {
 	// 示例: "https://api.day.app/YOUR_DEVICE_KEY/"
 	BarkFullURL string `json:"bark_full_url"`
 
-	// (可选) 推送消息的默认分组名称。
-	Group string `json:"group"`
-
-	// (可选) 推送消息的默认图标 URL。
-	IconURL string `json:"icon_url"`
-
-	// (可选) 推送消息的默认提示音名称。
+	// (可选) 推送消息的默认提示音名称。支持多种铃声选项。
 	Sound string `json:"sound"`
 
 	// (可选) AES 加密密钥，必须是 16 个 ASCII 字符。
@@ -82,12 +78,10 @@ func getConfigDir() string {
 
 func createDefaultConfig() *BarkConfig {
 	return &BarkConfig{
-		BarkFullURL: "", Group: "", IconURL: "", Sound: "",
+		BarkFullURL: "", Sound: "",
 		EncryptionKey: "", EncryptionIV: "",
 		RetryDelaySec: defaultRetryDelay, MaxRetries: defaultMaxRetries,
 		NotifyOnSystemReady: true, // 默认启用系统就绪通知
-		// DefaultTestTitle: "Bealink 测试通知", // -- 已移除
-		// DefaultTestBody: "这是一条来自 Bealink Go 服务的测试推送。", // -- 已移除
 	}
 }
 
@@ -126,8 +120,6 @@ func GetConfig() *BarkConfig {
 	// 不直接复制包含互斥锁的整个结构，逐字段复制以避免拷贝锁值
 	cfg := &BarkConfig{
 		BarkFullURL:         globalConfig.BarkFullURL,
-		Group:               globalConfig.Group,
-		IconURL:             globalConfig.IconURL,
 		Sound:               globalConfig.Sound,
 		EncryptionKey:       globalConfig.EncryptionKey,
 		EncryptionIV:        globalConfig.EncryptionIV,

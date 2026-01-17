@@ -31,6 +31,17 @@ const (
 	fixedTestBody  = "这是一条来自 Bealink Go 服务的连接测试通知。"
 )
 
+// SoundOptions 支持的所有铃声选项
+var SoundOptions = []string{
+	"alarm", "anticipate", "bell", "birdsong", "bloom",
+	"calypso", "chime", "choo", "descent", "electronic",
+	"fanfare", "glass", "gotosleep", "healthnotification", "horn",
+	"ladder", "mailsent", "minuet", "multiwayinvitation", "newmail",
+	"newsflash", "noir", "paymentsuccess", "shake", "sherwoodforest",
+	"silence", "spell", "suspense", "telegraph", "tiptoes",
+	"typewriters", "update",
+}
+
 type BarkNotifier struct {
 	lastNotifyTimes map[string]time.Time
 	mu              sync.Mutex
@@ -181,10 +192,10 @@ func (bn *BarkNotifier) SendNotification(eventType string, title, body string, c
 		URL: customURLPath, Copy: customCopy,
 	}
 	if payload.Group == "" {
-		payload.Group = cfg.Group
-	} // 如果自定义为空，则使用配置中的默认值
+		payload.Group = GetGroup()
+	} // 如果自定义为空，则使用默认分组
 	if payload.Icon == "" {
-		payload.Icon = cfg.IconURL
+		payload.Icon = GetIconURL()
 	}
 	if payload.Sound == "" {
 		payload.Sound = cfg.Sound
@@ -319,5 +330,39 @@ func NotifyEvent(eventType string) {
 		notifier.SendTestNotification() // 这个函数内部会处理好一切
 	} else {
 		log.Printf("警告: 未知的 Bark 通知事件类型: %s。不发送通知。", eventType)
+	}
+}
+
+// GetIconURL 返回推送通知使用的图标 URL（始终返回深色版本）
+func GetIconURL() string {
+	return defaultIconURL
+}
+
+// GetGroup 返回推送通知的分组名称
+func GetGroup() string {
+	return defaultGroup
+}
+
+// NotifyEventWithConfig 发送通知事件，允许指定自定义配置（用于测试推送使用临时铃声）
+func NotifyEventWithConfig(eventType string, customCfg *BarkConfig) {
+	if customCfg == nil {
+		customCfg = GetConfig()
+	}
+	notifier := GetNotifier()
+	sufficient, _, useEnc, _, _, reason := IsBarkConfigSufficient(customCfg)
+	if !sufficient {
+		log.Printf("Bark 功能未配置或配置不完整 (%s), 事件 '%s' 的通知将不会发送。", reason, eventType)
+		return
+	}
+	if reason != "" && useEnc {
+		log.Printf("警告: 事件 '%s' 的通知将尝试以非加密方式发送，因为加密配置存在问题: %s", eventType, reason)
+	}
+
+	if eventType == "test" {
+		log.Printf("触发 Bark 测试通知: %s (使用指定的铃声: %s)", eventType, customCfg.Sound)
+		// 直接发送测试通知，使用 customCfg 中的铃声
+		notifier.SendNotification(eventType, fixedTestTitle, fixedTestBody, GetIconURL(), customCfg.Sound, GetGroup(), "", "", false, false)
+	} else {
+		log.Printf("警告: NotifyEventWithConfig 仅支持 'test' 事件类型: %s。不发送通知。", eventType)
 	}
 }
