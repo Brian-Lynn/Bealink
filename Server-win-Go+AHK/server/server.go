@@ -125,7 +125,6 @@ func Start(ctx context.Context, preferredPorts []string, logHub *logging.Hub) (a
 		GlobalActualPort = portStr // 例如 "8088"
 	}
 
-
 	portInt, convErr := strconv.Atoi(GlobalActualPort)
 	if convErr != nil {
 		log.Printf("警告: 转换端口号 '%s' 为整数失败: %v。mDNS注册可能会使用默认值或失败。", GlobalActualPort, convErr)
@@ -150,7 +149,6 @@ func Start(ctx context.Context, preferredPorts []string, logHub *logging.Hub) (a
 		log.Printf("警告: 端口号无效 (%s)，跳过mDNS服务注册。", GlobalActualPort)
 	}
 
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRoot)
 	mux.HandleFunc("/ping", handlePing)
@@ -160,6 +158,18 @@ func Start(ctx context.Context, preferredPorts []string, logHub *logging.Hub) (a
 	mux.HandleFunc("/clip/", handleClip)
 	mux.HandleFunc("/getclip", handleGetClip)
 	mux.HandleFunc("/monitor", handleMonitorToggle)
+	mux.HandleFunc("/volume/up", handleVolumeUp)
+	mux.HandleFunc("/volume/down", handleVolumeDown)
+	mux.HandleFunc("/volume/info", handleVolumeInfo)
+	mux.HandleFunc("/media/playpause", handleMediaPlayPause)
+	mux.HandleFunc("/media/play", handleMediaPlayPause)
+	mux.HandleFunc("/media/info", handleMediaInfo)
+	mux.HandleFunc("/volume/set", handleVolumeSet)
+	mux.HandleFunc("/media/next", handleMediaNext)
+	mux.HandleFunc("/media/prev", handleMediaPrev)
+	mux.HandleFunc("/text", handleText)
+	mux.HandleFunc("/paste", handlePaste)
+	mux.HandleFunc("/upload/image", handleUploadImage)
 	mux.HandleFunc("/debug", handleDebugPage)
 	mux.HandleFunc("/ws/logs", func(w http.ResponseWriter, r *http.Request) { serveWs(logHub, w, r) })
 	mux.HandleFunc("/setting", func(w http.ResponseWriter, r *http.Request) {
@@ -172,6 +182,8 @@ func Start(ctx context.Context, preferredPorts []string, logHub *logging.Hub) (a
 		}
 	})
 	mux.HandleFunc("/test_bark", handleTestBark)
+	mux.HandleFunc("/favicon.ico", handleFavicon)
+	mux.HandleFunc("/icon.ico", handleIconICO)
 
 	httpServer = &http.Server{Handler: mux, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 

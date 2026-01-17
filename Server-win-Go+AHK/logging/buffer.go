@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"log"
-	"os"
 	"sync"
 	"time"
 )
@@ -37,16 +36,12 @@ func NewRingBuffer(size int) *RingBuffer {
 }
 
 // Write 实现 io.Writer 接口，将日志写入缓冲区
-// 它也会将日志写入 os.Stderr 并通过 WebSocket hub 广播
+// 日志只存储在内存中的环形缓冲区，并通过 WebSocket hub 广播到 HTML 界面
 func (rb *RingBuffer) Write(p []byte) (n int, err error) {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
-	// 1. 写入 os.Stderr (确保关键日志能被看到，尤其是在早期启动阶段)
-	// 注意：log 包默认会添加时间戳和文件行号，p 已经是格式化后的
-	os.Stderr.Write(p)
-
-	// 2. 创建 LogEntry 并存入环形缓冲区
+	// 创建 LogEntry 并存入环形缓冲区（不写入任何文件，只通过 WebSocket 显示）
 	msg := string(bytes.TrimSpace(p)) // 去除末尾的换行符
 	entry := LogEntry{
 		Timestamp: time.Now(),

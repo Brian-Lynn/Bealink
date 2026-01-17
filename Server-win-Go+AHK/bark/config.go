@@ -5,7 +5,7 @@
 // ** - 将 NotifyOnStartup 和 NotifyOnWakeup 合并为 NotifyOnSystemReady。**
 // ** - 移除 DefaultTestTitle 和 DefaultTestBody 字段。             **
 // ************************************************************************
-package config
+package bark
 
 import (
 	"encoding/json"
@@ -69,38 +69,22 @@ var once sync.Once
 var configFilePath string
 
 func getConfigDir() string {
-	exePath, err := os.Executable()
-	if err != nil {
-		log.Printf("警告: 获取程序可执行文件路径失败，配置文件将保存在当前工作目录: %v", err)
-		return "."
-	}
-	exeDir := filepath.Dir(exePath)
-
-	// 尝试写入测试文件，判断是否有写权限
-	testPath := filepath.Join(exeDir, "test_write_permission.tmp")
-	testFile, err := os.Create(testPath)
-	if err == nil {
-		testFile.Close()
-		os.Remove(testPath)
-		// 有写权限，说明是便携模式
-		return exeDir
-	}
-
-	// 没写权限，说明不能写入程序目录，使用用户配置目录
+	// 直接使用用户配置目录，不尝试程序目录
 	appDataDir, err := os.UserConfigDir()
 	if err != nil {
-		log.Printf("严重错误: 无法获取用户配置目录: %v", err)
-		// 最差情况，回退当前目录
+		log.Printf("警告: 获取用户配置目录失败，将使用当前工作目录: %v", err)
 		return "."
 	}
-	return filepath.Join(appDataDir, "BeaLink")
+	configDir := filepath.Join(appDataDir, "BeaLink")
+	log.Printf("信息: 配置文件将保存在用户配置目录: %s", configDir)
+	return configDir
 }
 
 func createDefaultConfig() *BarkConfig {
 	return &BarkConfig{
-		BarkFullURL:      "", Group: "", IconURL: "", Sound: "",
-		EncryptionKey:    "", EncryptionIV: "",
-		RetryDelaySec:    defaultRetryDelay, MaxRetries: defaultMaxRetries,
+		BarkFullURL: "", Group: "", IconURL: "", Sound: "",
+		EncryptionKey: "", EncryptionIV: "",
+		RetryDelaySec: defaultRetryDelay, MaxRetries: defaultMaxRetries,
 		NotifyOnSystemReady: true, // 默认启用系统就绪通知
 		// DefaultTestTitle: "Bealink 测试通知", // -- 已移除
 		// DefaultTestBody: "这是一条来自 Bealink Go 服务的测试推送。", // -- 已移除
@@ -134,31 +118,53 @@ func InitConfig() {
 }
 
 func GetConfig() *BarkConfig {
-	if globalConfig == nil { InitConfig() }
+	if globalConfig == nil {
+		InitConfig()
+	}
 	globalConfig.mu.RLock()
 	defer globalConfig.mu.RUnlock()
-	cfgCopy := *globalConfig
-	return &cfgCopy
+	// 不直接复制包含互斥锁的整个结构，逐字段复制以避免拷贝锁值
+	cfg := &BarkConfig{
+		BarkFullURL:         globalConfig.BarkFullURL,
+		Group:               globalConfig.Group,
+		IconURL:             globalConfig.IconURL,
+		Sound:               globalConfig.Sound,
+		EncryptionKey:       globalConfig.EncryptionKey,
+		EncryptionIV:        globalConfig.EncryptionIV,
+		RetryDelaySec:       globalConfig.RetryDelaySec,
+		MaxRetries:          globalConfig.MaxRetries,
+		NotifyOnSystemReady: globalConfig.NotifyOnSystemReady,
+	}
+	return cfg
 }
 
 func UpdateConfig(updateFn func(cfgToUpdate *BarkConfig)) error {
-	if globalConfig == nil { InitConfig() }
+	if globalConfig == nil {
+		InitConfig()
+	}
 	globalConfig.mu.Lock()
 	defer globalConfig.mu.Unlock()
 	log.Printf("调试: UpdateConfig - 更新前内存中的 BarkFullURL: '%s', NotifyOnSystemReady: %t", globalConfig.BarkFullURL, globalConfig.NotifyOnSystemReady)
 	updateFn(globalConfig)
 	log.Printf("调试: UpdateConfig - 更新后内存中的 BarkFullURL: '%s', NotifyOnSystemReady: %t", globalConfig.BarkFullURL, globalConfig.NotifyOnSystemReady)
 	err := saveConfigInternal()
-	if err == nil { log.Printf("调试: UpdateConfig - 配置已成功保存到文件。") }
+	if err == nil {
+		log.Printf("调试: UpdateConfig - 配置已成功保存到文件。")
+	}
 	return err
 }
 
 func LoadConfig() error {
-	if globalConfig == nil { return fmt.Errorf("严重内部错误: LoadConfig 被调用时 globalConfig 尚未被 InitConfig 初始化") }
+	if globalConfig == nil {
+		return fmt.Errorf("严重内部错误: LoadConfig 被调用时 globalConfig 尚未被 InitConfig 初始化")
+	}
 	log.Printf("调试: LoadConfig 开始，尝试读取文件: %s", configFilePath)
 	data, err := os.ReadFile(configFilePath)
 	if err != nil {
-		if os.IsNotExist(err) { log.Printf("调试: LoadConfig - 配置文件 %s 不存在。", configFilePath); return err }
+		if os.IsNotExist(err) {
+			log.Printf("调试: LoadConfig - 配置文件 %s 不存在。", configFilePath)
+			return err
+		}
 		return fmt.Errorf("读取配置文件 %s 失败: %w", configFilePath, err)
 	}
 	log.Printf("调试: LoadConfig - 成功读取文件 %s, 内容长度: %d", configFilePath, len(data))
@@ -183,7 +189,9 @@ func LoadConfig() error {
 func saveConfigInternal() error {
 	log.Printf("调试: saveConfigInternal 开始，准备序列化内存中的 BarkFullURL: '%s', NotifyOnSystemReady: %t", globalConfig.BarkFullURL, globalConfig.NotifyOnSystemReady)
 	data, err := json.MarshalIndent(globalConfig, "", "  ")
-	if err != nil { return fmt.Errorf("序列化配置到 JSON 失败: %w", err) }
+	if err != nil {
+		return fmt.Errorf("序列化配置到 JSON 失败: %w", err)
+	}
 	dir := filepath.Dir(configFilePath)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if mkErr := os.MkdirAll(dir, 0750); mkErr != nil {
@@ -198,14 +206,18 @@ func saveConfigInternal() error {
 }
 
 func SaveConfig() error {
-	if globalConfig == nil { InitConfig() }
+	if globalConfig == nil {
+		InitConfig()
+	}
 	globalConfig.mu.Lock()
 	defer globalConfig.mu.Unlock()
 	return saveConfigInternal()
 }
 
 func GetConfigFilePath() string {
-	if configFilePath == "" { InitConfig() }
+	if configFilePath == "" {
+		InitConfig()
+	}
 	return configFilePath
 }
 
@@ -220,10 +232,14 @@ func OpenConfigFile() error {
 	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
-	case "windows": cmd = exec.Command("cmd", "/c", "start", "", filePath)
-	case "darwin": cmd = exec.Command("open", filePath)
-	case "linux": cmd = exec.Command("xdg-open", filePath)
-	default: return fmt.Errorf("不支持的操作系统: %s", runtime.GOOS)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", filePath)
+	case "darwin":
+		cmd = exec.Command("open", filePath)
+	case "linux":
+		cmd = exec.Command("xdg-open", filePath)
+	default:
+		return fmt.Errorf("不支持的操作系统: %s", runtime.GOOS)
 	}
 	log.Printf("尝试使用系统默认程序打开配置文件: %s", filePath)
 	if err := cmd.Start(); err != nil {

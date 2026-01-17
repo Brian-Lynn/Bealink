@@ -31,7 +31,7 @@ Server-win-Go+AHK/InstallerSource/logging/buffer.go
 Server-win-Go+AHK/InstallerSource/logging/hub.go
 Server-win-Go+AHK/InstallerSource/server/handlers.go
 Server-win-Go+AHK/InstallerSource/server/server.go
-Server-win-Go+AHK/InstallerSource/server/templates/debug.html
+Server-win-Go+AHK/InstallerSource/server/html/debug.html
 Server-win-Go+AHK/InstallerSource/winapi/monitor.go
 Server-win-Go+AHK/InstallerSource/winapi/registry.go
 Server-win-Go+AHK/bealinkserver.exe

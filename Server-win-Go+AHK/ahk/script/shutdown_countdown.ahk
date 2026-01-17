@@ -1,5 +1,5 @@
-﻿; === 配置区 ===
-; #SingleInstance force ; <--- 已移除, Go 程序将控制实例
+﻿#SingleInstance Force
+; === 配置区 ===
 #Persistent
 SetBatchLines, -1
 CoordMode, ToolTip, Screen

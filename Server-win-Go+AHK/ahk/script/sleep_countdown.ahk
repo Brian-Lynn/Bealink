@@ -1,5 +1,5 @@
-﻿; === 配置区 ===
-; #SingleInstance force ; <--- 已移除, Go 程序将控制实例
+﻿#SingleInstance Force
+; === 配置区 ===
 #Persistent
 SetBatchLines, -1
 CoordMode, ToolTip, Screen
@@ -46,7 +46,8 @@ UpdateCountdown:
     Sleep, 100
     SetTimer, UpdateCountdown, Off
     Gui, Destroy
-    Run, rundll32.exe powrprof.dll`,SetSuspendState 0`,1`,0 ; 执行睡眠命令
+    ; 参数含义：0 (睡眠), 1 (强制), 0 (不禁止唤醒事件)
+    DllCall("PowrProf\SetSuspendState", "Int", 0, "Int", 1, "Int", 0)
     ExitApp
   }
   percent := Round(tick / totalMilli * 100)

@@ -21,6 +21,7 @@ require (
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/miekg/dns v1.1.27 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
+	github.com/stretchr/testify v1.7.5 // indirect
 	golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550 // indirect
 	golang.org/x/net v0.0.0-20200114155413-6afb5195e5aa // indirect
 )

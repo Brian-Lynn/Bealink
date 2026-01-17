@@ -23,8 +23,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"bealinkserver/config"
 )
 
 const (
@@ -97,7 +95,7 @@ func encryptAESCBC(plaintext []byte, key []byte, iv []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-func IsBarkConfigSufficient(cfg *config.BarkConfig) (sufficient bool, targetURL string, useEncryption bool, keyBytes, ivBytes []byte, reason string) {
+func IsBarkConfigSufficient(cfg *BarkConfig) (sufficient bool, targetURL string, useEncryption bool, keyBytes, ivBytes []byte, reason string) {
 	if cfg.BarkFullURL == "" {
 		return false, "", false, nil, nil, "BarkFullURL 未配置"
 	}
@@ -130,7 +128,7 @@ func IsBarkConfigSufficient(cfg *config.BarkConfig) (sufficient bool, targetURL 
 }
 
 func (bn *BarkNotifier) SendNotification(eventType string, title, body string, customIcon, customSound, customGroup, customURLPath, customCopy string, autoCopy, isArchive bool) {
-	cfg := config.GetConfig()
+	cfg := GetConfig()
 	sufficient, targetURL, useEncryption, keyBytes, ivBytes, insufficientReason := IsBarkConfigSufficient(cfg)
 	if !sufficient {
 		logMsg := fmt.Sprintf("Bark 配置不完整 (%s)，无法发送通知 (事件: %s)。", insufficientReason, eventType)
@@ -201,7 +199,7 @@ func (bn *BarkNotifier) SendNotification(eventType string, title, body string, c
 	go bn.trySendWithRetry(eventType, targetURL, payload, useEncryption, keyBytes, ivBytes, cfg)
 }
 
-func (bn *BarkNotifier) trySendWithRetry(eventType string, targetURL string, payload NotificationPayload, useEncryption bool, keyBytes, ivBytes []byte, cfg *config.BarkConfig) {
+func (bn *BarkNotifier) trySendWithRetry(eventType string, targetURL string, payload NotificationPayload, useEncryption bool, keyBytes, ivBytes []byte, cfg *BarkConfig) {
 	var requestDataBytes []byte
 	var err error
 	contentType := "application/json; charset=utf-8"
@@ -298,7 +296,7 @@ func (bn *BarkNotifier) SendTestNotification() {
 }
 
 func NotifyEvent(eventType string) {
-	cfg := config.GetConfig()
+	cfg := GetConfig()
 	notifier := GetNotifier()
 	sufficient, _, useEnc, _, _, reason := IsBarkConfigSufficient(cfg)
 	if !sufficient {

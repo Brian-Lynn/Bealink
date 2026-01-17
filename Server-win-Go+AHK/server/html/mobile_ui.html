@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Bealink">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+    <title>Bealink 控制台</title>
+    <!-- Favicon and Apple Touch Icon for iOS -->
+    <!-- Static icons in HTML head for iOS to detect before JavaScript loads -->
+    <link rel="icon" type="image/x-icon" sizes="180x180" href="/icon.ico?theme=light">
+    <link rel="icon" type="image/x-icon" href="/icon.ico?theme=light">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon.ico?theme=light">
+    <link rel="apple-touch-icon" href="/icon.ico?theme=light">
+    <!-- Dynamic icon update script -->
+    <script>
+        (function() {
+            function updateIcons() {
+                const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const theme = isDark ? 'dark' : 'light';
+                const iconUrl = '/icon.ico?theme=' + theme;
+                const faviconUrl = '/favicon.ico?theme=' + theme;
+                
+                // Update standard favicon
+                let link = document.querySelector("link[rel*='icon']:not([rel='apple-touch-icon'])");
+                if (link) {
+                    link.href = iconUrl;
+                }
+                
+                // Update apple-touch-icon
+                let appleLink = document.querySelector("link[rel='apple-touch-icon']");
+                if (appleLink) {
+                    appleLink.href = iconUrl;
+                } else {
+                    appleLink = document.createElement('link');
+                    appleLink.rel = 'apple-touch-icon';
+                    appleLink.href = iconUrl;
+                    document.head.appendChild(appleLink);
+                }
+            }
+            
+            // Initial update
+            updateIcons();
+            
+            // Listen for theme changes
+            const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+            if (mediaQuery.addEventListener) {
+                mediaQuery.addEventListener('change', updateIcons);
+            } else if (mediaQuery.addListener) {
+                mediaQuery.addListener(updateIcons);
+            }
+        })();
+    </script>
+    <style>
+        :root {
+            --bg: #f2f2f7; --card: #fff; --text: #000; --sub: #8e8e93;
+            --accent: #007aff; --track: #e5e5ea; --danger: #ff3b30;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root { --bg: #000; --card: #1c1c1e; --text: #fff; --sub: #98989d; --track: #2c2c2e; }
+        }
+        
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+        body {
+            font-family: -apple-system, sans-serif; background: var(--bg); color: var(--text);
+            margin: 0; padding: 28px 20px 20px 20px; display: flex; flex-direction: column; gap: 24px;
+            height: 100vh; overflow: hidden; touch-action: none; overscroll-behavior: none;
+        }
+
+        /* 顶部状态 */
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; }
+        .title { font-size: 24px; font-weight: 800; }
+        .badge { font-size: 12px; color: var(--accent); background: rgba(0,122,255,0.1); padding: 4px 10px; border-radius: 12px; font-weight: 600; }
+        .badge.online { color: #34c759; background: rgba(52,199,89,0.1); }
+        .badge.offline { color: #ff3b30; background: rgba(255,59,48,0.1); }
+
+        /* 卡片容器 */
+        .card { background: var(--card); border-radius: 20px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+
+        /* 媒体信息 */
+        .media-info { text-align: center; margin-bottom: 24px; }
+        .song { font-size: 18px; font-weight: 700; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .artist { font-size: 14px; color: var(--sub); }
+
+        /* 播放控制 */
+        .controls { display: flex; justify-content: center; align-items: center; gap: 40px; margin-bottom: 24px; }
+        .btn { background: none; border: none; color: var(--text); cursor: pointer; transition: transform 0.1s; display: flex; align-items: center; justify-content: center; }
+        .btn:active { transform: scale(0.85); opacity: 0.7; }
+        .btn-side { width: 40px; height: 40px; }
+        .btn-side svg { width: 28px; height: 28px; fill: currentColor; }
+        .btn-play { width: 70px; height: 70px; background: var(--text); color: var(--bg); border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+        .btn-play svg { width: 32px; height: 32px; fill: currentColor; }
+
+        /* iOS 风格音量条 */
+        .volume-container { 
+            display: flex; align-items: center; gap: 12px; 
+            background: var(--track); padding: 6px 16px 6px 6px; border-radius: 16px; 
+        }
+        .vol-btn { 
+            width: 36px; height: 36px; border-radius: 12px; background: var(--card); 
+            display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+        }
+        .vol-btn svg { width: 18px; height: 18px; fill: var(--sub); }
+        
+        .slider-wrapper { flex: 1; position: relative; height: 36px; display: flex; align-items: center; }
+        input[type=range] {
+            -webkit-appearance: none; width: 100%; height: 6px; background-color: var(--track); border-radius: 999px;
+            position: relative; z-index: 2; margin: 0; padding: 0; overflow: visible;
+        }
+        input[type=range]:focus { outline: none; }
+        /* 使用透明轨道，进度由元素背景 (linear-gradient) 绘制 */
+        input[type=range]::-webkit-slider-runnable-track {
+            height: 6px; background: transparent; border-radius: 3px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            height: 20px; width: 20px; border-radius: 50%; background: var(--card);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.18); cursor: pointer; -webkit-appearance: none; margin-top: -7px;
+        }
+        input[type=range]::-moz-range-track { height: 6px; background: transparent; border-radius: 3px; }
+        input[type=range]::-moz-range-thumb { height: 20px; width: 20px; border-radius: 50%; background: var(--card); box-shadow: 0 2px 6px rgba(0,0,0,0.18); }
+
+        /* 文本输入 (IM 风格) */
+        .input-area { display: flex; gap: 10px; align-items: center; }
+        textarea {
+            flex: 1; min-height: 64px; max-height: 30vh; border: none; background: var(--track); border-radius: 18px;
+            padding: 12px 16px; font-size: 16px; color: var(--text); resize: none; font-family: inherit; overflow: auto;
+            line-height: 1.4;
+        }
+        textarea:focus { outline: none; background: rgba(142,142,147, 0.15); }
+        .send-btn {
+            width: 50px; height: 50px; border-radius: 50%; background: var(--accent);
+            color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,122,255,0.3);
+        }
+        .send-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.5; }
+
+        /* 底部功能网格 */
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        .tile {
+            background: var(--card); border-radius: 16px; height: 90px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 10px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            position: relative; overflow: hidden;
+        }
+        .tile:active { transform: scale(0.96); background: var(--track); }
+        .tile-icon { font-size: 28px; }
+        .danger { color: var(--danger); }
+        
+        /* 上传区 */
+        .upload { 
+            position: sticky; bottom: 20px; z-index: 6; overflow: hidden;
+            border: 2px dashed var(--sub); border-radius: 16px; padding: 12px;
+            text-align: center; font-size: 14px; color: var(--sub); opacity: 0.9; background: rgba(255,255,255,0.02);
+        }
+        .upload input { position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; }
+        .tile .progress {
+            position: absolute; left: 0; top: 0; bottom: 0; width: 0%; z-index: 0;
+            background: rgba(0,122,255,0.12); transition: width linear;
+        }
+        .tile > * { z-index: 1; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="title">Bealink</div>
+        <div style="display: flex; gap: 12px; align-items: center;">
+            <div class="badge" id="deviceStatus">设备在线</div>
+            <a href="/setting" style="font-size: 12px; color: var(--accent); text-decoration: none; padding: 4px 10px; border-radius: 12px; background: rgba(0,122,255,0.1); font-weight: 600;">设置</a>
+        </div>
+    </div>
+
+    <!-- 媒体卡片 -->
+    <div class="card">
+        <div class="media-info">
+            <div class="song" id="mTitle">媒体控制</div>
+            <div class="artist" id="mArtist"></div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-side" onclick="api('/media/prev')">
+                <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            </button>
+            <button class="btn btn-play" id="playBtn" onclick="api('/media/play')">
+                <!-- 同时展示播放与暂停图标（多功能按钮），前端不再根据状态切换 -->
+                <svg viewBox="0 0 24 24" style="margin-right:6px"><path d="M8 5v14l11-7z"/></svg>
+                <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+            <button class="btn btn-side" onclick="api('/media/next')">
+                <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
+        </div>
+
+        <!-- 音量条 (拖拽优化) -->
+        <div class="volume-container">
+            <button class="vol-btn" onclick="setVolumeZero()">
+                <svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-8-7.27-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+            </button>
+            <div class="slider-wrapper">
+                <input type="range" id="volSlider" min="0" max="100" value="0" oninput="onVolInput(this)" onchange="onVolChange(this)">
+            </div>
+            <div style="min-width: 45px; text-align: center; font-weight: 600; font-size: 14px; color: var(--text);" id="volPercent">0%</div>
+            <button class="vol-btn" onclick="stepVol(5)">
+                <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- 文本输入 -->
+    <div class="card" style="padding: 16px;">
+        <div class="input-area">
+            <textarea id="txt" placeholder="发送文字..."></textarea>
+            <button class="send-btn" onclick="sendText()">
+                <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- 功能区 -->
+    <div class="grid">
+        <div class="tile" onclick="api('/monitor')">
+            <span class="tile-icon">🖥️</span>
+            <span>息屏</span>
+        </div>
+        <div class="tile" id="sleepTile" onclick="toggleCountdown('sleep', this)">
+            <span class="tile-icon">🌙</span>
+            <span>睡眠</span>
+        </div>
+        <div class="tile danger" id="shutdownTile" onclick="toggleCountdown('shutdown', this)">
+            <span class="tile-icon">⭕</span>
+            <span>关机</span>
+        </div>
+    </div>
+
+    <div class="upload">
+        📤 点击上传图片到剪贴板
+        <input type="file" accept="image/*" onchange="uploadImage(this)">
+    </div>
+
+    <script>
+        // 状态锁：用户拖拽时暂停轮询更新
+        let isDragging = false;
+        let lastVol = -1;
+        let volumePollInterval = null;
+        let deviceOnline = true; // 设备在线状态
+        let consecutiveFailures = 0; // 连续失败次数
+        const MAX_FAILURES = 2; // 连续失败2次后标记为离线
+        
+        // WebSocket 连接
+        let wsSocket = null;
+        let wsReconnectTimer = null;
+        let wsHeartbeatTimer = null;
+        const WS_RECONNECT_DELAY = 3000; // 3秒后重连
+        const WS_HEARTBEAT_INTERVAL = 2000; // 10秒发送一次心跳（ping）
+        let lastPongTime = Date.now();
+
+        async function api(url) {
+            if(navigator.vibrate) navigator.vibrate(10);
+            try { await fetch(url); syncStatus(); } catch(e){}
+        }
+
+        // 音量逻辑
+        let debounceTimer;
+        
+        // 拖拽中：只发送请求，不更新UI
+        function onVolInput(el) {
+            isDragging = true;
+            if(debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                fetch('/volume/set?val=' + el.value);
+            }, 100); // 100ms 节流
+            // 视觉上实时更新进度
+            updateRangeBackground(el);
+        }
+
+        // 拖拽结束：立即发送，延迟 500ms 恢复轮询（等待服务器生效）
+        function onVolChange(el) {
+            fetch('/volume/set?val=' + el.value);
+            setTimeout(() => { isDragging = false; }, 500);
+            updateRangeBackground(el);
+        }
+
+        // 步进音量
+        function stepVol(delta) {
+            const el = document.getElementById('volSlider');
+            let v = parseInt(el.value) + delta;
+            if (v>100) v=100; if (v<0) v=0;
+            el.value = v;
+            onVolChange(el);
+        }
+
+        // 文本发送
+        async function sendText() {
+            const el = document.getElementById('txt');
+            if(!el.value) return;
+            await fetch('/text', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'text=' + encodeURIComponent(el.value)
+            });
+            el.value = '';
+        }
+
+        // 图片上传
+        async function uploadImage(el) {
+            const file = el.files[0];
+            if(!file) return;
+            const data = new FormData();
+            data.append('image', file);
+            await fetch('/upload/image', { method: 'POST', body: data });
+            el.value = '';
+            alert('图片已发送');
+        }
+
+        // 更新设备在线状态显示
+        function updateDeviceStatus(isOnline) {
+            const statusEl = document.getElementById('deviceStatus');
+            if (!statusEl) return;
+            
+            // 只有当状态真正改变时才更新
+            if (deviceOnline === isOnline) return;
+            
+            deviceOnline = isOnline;
+            if (isOnline) {
+                statusEl.textContent = '设备在线';
+                statusEl.className = 'badge online';
+            } else {
+                statusEl.textContent = '设备不在线';
+                statusEl.className = 'badge offline';
+            }
+        }
+        
+        // 连接 WebSocket（用于日志和在线状态检测）
+        function connectWebSocket() {
+            // 构建 WebSocket URL
+            const wsScheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsURL = `${wsScheme}//${window.location.host}/ws/logs`;
+            
+            try {
+                wsSocket = new WebSocket(wsURL);
+                
+                wsSocket.onopen = function(event) {
+                    console.log('WebSocket 连接已打开');
+                    // WebSocket 连接成功，设备在线
+                    consecutiveFailures = 0;
+                    lastPongTime = Date.now();
+                    updateDeviceStatus(true);
+                    // 清除重连定时器
+                    if (wsReconnectTimer) {
+                        clearTimeout(wsReconnectTimer);
+                        wsReconnectTimer = null;
+                    }
+                    // 启动心跳检测
+                    startHeartbeat();
+                };
+                
+                wsSocket.onmessage = function(event) {
+                    // 收到消息说明连接正常，设备在线
+                    lastPongTime = Date.now();
+                    consecutiveFailures = 0;
+                    if (!deviceOnline) {
+                        updateDeviceStatus(true);
+                    }
+                    // 这里可以处理日志消息，但主界面不需要显示日志
+                };
+                
+                wsSocket.onclose = function(event) {
+                    console.log('WebSocket 连接已关闭:', event);
+                    wsSocket = null;
+                    stopHeartbeat();
+                    // WebSocket 断开，立即标记为离线
+                    updateDeviceStatus(false);
+                    // 尝试重连
+                    if (wsReconnectTimer) {
+                        clearTimeout(wsReconnectTimer);
+                    }
+                    wsReconnectTimer = setTimeout(connectWebSocket, WS_RECONNECT_DELAY);
+                };
+                
+                wsSocket.onerror = function(error) {
+                    console.error('WebSocket 错误:', error);
+                    stopHeartbeat();
+                    // WebSocket 错误，标记为离线
+                    updateDeviceStatus(false);
+                };
+            } catch (e) {
+                console.error('创建 WebSocket 连接失败:', e);
+                stopHeartbeat();
+                updateDeviceStatus(false);
+                // 尝试重连
+                if (wsReconnectTimer) {
+                    clearTimeout(wsReconnectTimer);
+                }
+                wsReconnectTimer = setTimeout(connectWebSocket, WS_RECONNECT_DELAY);
+            }
+        }
+        
+        // 启动心跳检测（用于快速检测连接断开，如电脑睡眠）
+        function startHeartbeat() {
+            stopHeartbeat(); // 先清除旧的定时器
+            wsHeartbeatTimer = setInterval(() => {
+                if (wsSocket && wsSocket.readyState === WebSocket.OPEN) {
+                    // 检查是否长时间没有收到消息（可能连接已断开但未触发 onclose，如电脑睡眠）
+                    const timeSinceLastPong = Date.now() - lastPongTime;
+                    if (timeSinceLastPong > WS_HEARTBEAT_INTERVAL * 3) {
+                        // 超过30秒没有收到任何消息（包括日志推送），认为连接已断开
+                        console.log('WebSocket 心跳超时，连接可能已断开（可能电脑已睡眠）');
+                        updateDeviceStatus(false);
+                        if (wsSocket) {
+                            try {
+                                wsSocket.close();
+                            } catch (e) {
+                                // 忽略关闭错误
+                            }
+                        }
+                        // 触发重连
+                        if (wsReconnectTimer) {
+                            clearTimeout(wsReconnectTimer);
+                        }
+                        wsReconnectTimer = setTimeout(connectWebSocket, WS_RECONNECT_DELAY);
+                        return;
+                    }
+                } else if (wsSocket && wsSocket.readyState !== WebSocket.CONNECTING) {
+                    // WebSocket 状态异常，标记为离线
+                    updateDeviceStatus(false);
+                }
+            }, WS_HEARTBEAT_INTERVAL);
+        }
+        
+        // 停止心跳检测
+        function stopHeartbeat() {
+            if (wsHeartbeatTimer) {
+                clearInterval(wsHeartbeatTimer);
+                wsHeartbeatTimer = null;
+            }
+        }
+        
+        // 关闭 WebSocket 连接
+        function closeWebSocket() {
+            stopHeartbeat();
+            if (wsReconnectTimer) {
+                clearTimeout(wsReconnectTimer);
+                wsReconnectTimer = null;
+            }
+            if (wsSocket) {
+                wsSocket.close();
+                wsSocket = null;
+            }
+        }
+
+        // 获取音量信息并更新UI（作为 WebSocket 的备用检测方式）
+        function fetchVolume() {
+            if (isDragging) return;
+            // 如果 WebSocket 已连接，主要依赖 WebSocket 状态，HTTP 轮询作为备用
+            if (wsSocket && wsSocket.readyState === WebSocket.OPEN) {
+                // WebSocket 已连接，只更新音量，不用于在线状态检测
+                fetch('/volume/info', { 
+                    method: 'GET',
+                    signal: AbortSignal.timeout(2000) // 2秒超时
+                })
+                    .then(r => {
+                        if (!r.ok) {
+                            throw new Error(`HTTP ${r.status}`);
+                        }
+                        return r.json();
+                    })
+                    .then(vInfo => {
+                        const slider = document.getElementById('volSlider');
+                        const volPercent = document.getElementById('volPercent');
+                        if (slider && vInfo.volume !== undefined) {
+                            const vol = Math.round(vInfo.volume);
+                            slider.value = vol;
+                            updateRangeBackground(slider);
+                            if (volPercent) {
+                                volPercent.textContent = vol + '%';
+                            }
+                        }
+                    })
+                    .catch(e => {
+                        // HTTP 失败不影响在线状态（因为 WebSocket 已连接）
+                        console.log('fetchVolume err (WebSocket已连接，忽略)', e);
+                    });
+            } else {
+                // WebSocket 未连接，使用 HTTP 轮询作为在线状态检测
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2秒超时
+                    
+                    fetch('/volume/info', { 
+                        method: 'GET',
+                        signal: controller.signal
+                    })
+                        .then(r => {
+                            clearTimeout(timeoutId);
+                            if (!r.ok) {
+                                throw new Error(`HTTP ${r.status}`);
+                            }
+                            return r.json();
+                        })
+                        .then(vInfo => {
+                            // 成功获取到响应，设备在线
+                            consecutiveFailures = 0;
+                            if (!deviceOnline) {
+                                updateDeviceStatus(true);
+                            }
+                            
+                            const slider = document.getElementById('volSlider');
+                            const volPercent = document.getElementById('volPercent');
+                            if (slider && vInfo.volume !== undefined) {
+                                const vol = Math.round(vInfo.volume);
+                                slider.value = vol;
+                                updateRangeBackground(slider);
+                                if (volPercent) {
+                                    volPercent.textContent = vol + '%';
+                                }
+                            }
+                        })
+                        .catch(e => {
+                            clearTimeout(timeoutId);
+                            console.log('fetchVolume err', e);
+                            consecutiveFailures++;
+                            // 连续失败达到阈值，标记为离线
+                            if (consecutiveFailures >= MAX_FAILURES) {
+                                updateDeviceStatus(false);
+                            }
+                        });
+                } catch (e) {
+                    console.log('fetchVolume err', e);
+                    consecutiveFailures++;
+                    if (consecutiveFailures >= MAX_FAILURES) {
+                        updateDeviceStatus(false);
+                    }
+                }
+            }
+        }
+
+        // 启动设备连接和音量轮询（每500ms一次）
+        function startVolumePolling() {
+            if (volumePollInterval) return; // 已经启动
+            // 先连接 WebSocket（主要检测方式）
+            connectWebSocket();
+            // 然后启动 HTTP 轮询（备用检测方式和音量更新）
+            fetchVolume(); // 立即获取一次
+            volumePollInterval = setInterval(fetchVolume, 500);
+        }
+
+        // 停止音量轮询和 WebSocket
+        function stopVolumePolling() {
+            if (volumePollInterval) {
+                clearInterval(volumePollInterval);
+                volumePollInterval = null;
+            }
+            closeWebSocket();
+        }
+
+        // 启动
+        // 自动调整 textarea 高度，避免推送上传区出屏
+        function adjustTextarea(el) {
+            if(!el) return;
+            // 最大高度为视窗高度的比例，确保底部上传区始终可见
+            const maxPx = Math.round(window.innerHeight * 0.30);
+            el.style.height = 'auto';
+            const newH = Math.min(el.scrollHeight, maxPx);
+            el.style.height = newH + 'px';
+        }
+
+        const txtEl = document.getElementById('txt');
+        if (txtEl) {
+            txtEl.addEventListener('input', function(){ adjustTextarea(this); });
+            // 在发送后也收缩回最小高度
+            const originalSend = sendText;
+            sendText = async function(){ await originalSend(); adjustTextarea(txtEl); };
+            // 初始调整
+            window.addEventListener('load', () => adjustTextarea(txtEl));
+            window.addEventListener('resize', () => adjustTextarea(txtEl));
+        }
+
+        // 使用背景 linear-gradient 绘制主题色进度
+        function updateRangeBackground(el) {
+            if(!el) return;
+            const min = parseFloat(el.min) || 0;
+            const max = parseFloat(el.max) || 100;
+            const val = parseFloat(el.value) || 0;
+            const pct = Math.round((val - min) / (max - min) * 100);
+            // 使用 single background 保证兼容性：前景为主题色，后景为灰色轨道
+            el.style.background = `linear-gradient(90deg, var(--accent) ${pct}%, var(--track) ${pct}%)`;
+            // 同步更新百分比显示
+            const volPercent = document.getElementById('volPercent');
+            if (volPercent) {
+                volPercent.textContent = Math.round(val) + '%';
+            }
+        }
+
+        // 初始化音量滑块背景
+        const volEl = document.getElementById('volSlider');
+        if (volEl) {
+            updateRangeBackground(volEl);
+            volEl.addEventListener('input', function(){ updateRangeBackground(this); });
+            window.addEventListener('load', () => { 
+                updateRangeBackground(volEl); 
+                startVolumePolling(); // 启动 WebSocket 和音量轮询
+            });
+            window.addEventListener('resize', () => updateRangeBackground(volEl));
+            // 页面卸载时停止轮询和 WebSocket
+            window.addEventListener('beforeunload', stopVolumePolling);
+            // 页面隐藏时也停止（节省资源）
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    // 页面隐藏时不断开，只是暂停部分更新
+                } else {
+                    // 页面显示时确保连接
+                    if (!wsSocket || wsSocket.readyState !== WebSocket.OPEN) {
+                        connectWebSocket();
+                    }
+                }
+            });
+        }
+
+        // 前端静音：把滑块设为0并发送设置请求
+        function setVolumeZero() {
+            const el = document.getElementById('volSlider');
+            if (!el) return;
+            el.value = 0;
+            updateRangeBackground(el);
+            // 触发后端设置
+            fetch('/volume/set?val=0').catch(()=>{});
+            // 短暂暂停轮询，等待服务器生效
+            isDragging = true;
+            setTimeout(() => { isDragging = false; }, 600);
+        }
+
+        // toggleCountdown 调用 /sleep 或 /shutdown，支持 start/cancel
+        async function toggleCountdown(kind, el) {
+            const path = kind === 'sleep' ? '/sleep' : '/shutdown';
+            try {
+                const res = await fetch(path);
+                const txt = await res.text();
+                let data = {};
+                try { data = JSON.parse(txt); } catch(e) { data = { status: 'ok' }; }
+
+                const duration = data.duration || 5;
+                const status = data.status || 'ok';
+                const tile = el;
+                let prog = tile.querySelector('.progress');
+                if (!prog) {
+                    prog = document.createElement('div'); prog.className = 'progress'; tile.appendChild(prog);
+                }
+
+                if (status === 'started') {
+                            // 使用基于百分比的定时器来显示倒计时进度（避免 CSS 动画回弹）
+                            clearInterval(tile._countdownInterval || 0);
+                            tile.dataset.counting = '1';
+                            prog.style.transition = 'none';
+                            prog.style.width = '0%';
+                            const startTs = Date.now();
+                            const totalMs = duration * 1000;
+                            tile._countdownInterval = setInterval(() => {
+                                const elapsed = Date.now() - startTs;
+                                let pct = Math.round(Math.min(1, elapsed / totalMs) * 100);
+                                prog.style.width = pct + '%';
+                                if (elapsed >= totalMs) {
+                                    clearInterval(tile._countdownInterval);
+                                    tile._countdownInterval = 0;
+                                    tile.dataset.counting = '';
+                                    // 保持满格短暂后归零
+                                    setTimeout(() => { prog.style.width = '0%'; }, 600);
+                                }
+                            }, 100);
+                } else if (status === 'cancelled') {
+                            // 取消倒计时：清除定时器并回到 0
+                            if (tile._countdownInterval) { clearInterval(tile._countdownInterval); tile._countdownInterval = 0; }
+                            prog.style.transition = 'width 0.2s linear';
+                            prog.style.width = '0%';
+                            tile.dataset.counting = '';
+                } else if (status === 'executed') {
+                            // 直接设置为满格并停止定时器
+                            if (tile._countdownInterval) { clearInterval(tile._countdownInterval); tile._countdownInterval = 0; }
+                            prog.style.width = '100%';
+                            tile.dataset.counting = '';
+                            setTimeout(()=>{ prog.style.width='0%'; }, 800);
+                }
+            } catch (e) {
+                console.log('toggle error', e);
+            }
+        }
+
+        // 不进行持续轮询，页面加载时会读取一次音量
+    </script>
+</body>
+</html>

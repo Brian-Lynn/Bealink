@@ -3,7 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Bealink">
+    <meta name="theme-color" content="#f4f4f4" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
     <title>调试日志 - BealinkGo</title>
+    <!-- Favicon and Apple Touch Icon -->
+    <link rel="icon" type="image/x-icon" sizes="180x180" href="/icon.ico?theme=light">
+    <link rel="icon" type="image/x-icon" href="/icon.ico?theme=light">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon.ico?theme=light">
+    <link rel="apple-touch-icon" href="/icon.ico?theme=light">
+    <!-- Dynamic icon update script -->
+    <script>
+        (function() {
+            function updateIcons() {
+                const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const theme = isDark ? 'dark' : 'light';
+                const iconUrl = '/icon.ico?theme=' + theme;
+                
+                let link = document.querySelector("link[rel*='icon']:not([rel='apple-touch-icon'])");
+                if (link) link.href = iconUrl;
+                
+                let appleLink = document.querySelector("link[rel='apple-touch-icon']");
+                if (appleLink) {
+                    appleLink.href = iconUrl;
+                } else {
+                    appleLink = document.createElement('link');
+                    appleLink.rel = 'apple-touch-icon';
+                    appleLink.href = iconUrl;
+                    document.head.appendChild(appleLink);
+                }
+            }
+            updateIcons();
+            const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+            if (mediaQuery.addEventListener) {
+                mediaQuery.addEventListener('change', updateIcons);
+            } else if (mediaQuery.addListener) {
+                mediaQuery.addListener(updateIcons);
+            }
+        })();
+    </script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
