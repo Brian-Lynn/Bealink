@@ -101,12 +101,14 @@ func handleClip(w http.ResponseWriter, r *http.Request) {
 		}
 		if text != "" {
 			clipboard.WriteAll(text)
+			log.Printf("剪切板写入 (来自 %s): %d bytes", r.RemoteAddr, len(text))
 			w.Write([]byte("ok"))
 			return
 		}
 		http.Error(w, "Empty body", http.StatusBadRequest)
 	case http.MethodGet:
 		content, _ := clipboard.ReadAll()
+		log.Printf("剪切板读取 (来自 %s): %d bytes", r.RemoteAddr, len(content))
 		w.Write([]byte(content))
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -115,6 +117,7 @@ func handleClip(w http.ResponseWriter, r *http.Request) {
 
 func handleGetClip(w http.ResponseWriter, r *http.Request) {
 	content, _ := clipboard.ReadAll()
+	log.Printf("handleGetClip 请求来自 %s, 内容长度: %d", r.RemoteAddr, len(content))
 	w.Write([]byte(content))
 }
 

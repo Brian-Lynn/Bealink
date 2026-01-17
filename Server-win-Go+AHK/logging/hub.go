@@ -11,7 +11,7 @@ import (
 // Hub 维护一组活动的 WebSocket 客户端，并向它们广播消息。
 type Hub struct {
 	clients    map[*websocket.Conn]bool // 注册的客户端
-	broadcast  chan []byte              // 从日志系统传入的消息
+	broadcast  chan []byte              // 从日志系统传入的消息（已弃用，不再使用）
 	register   chan *websocket.Conn     // 注册请求
 	unregister chan *websocket.Conn     // 注销请求
 	mu         sync.Mutex               // 用于保护 clients map
@@ -53,15 +53,17 @@ func (h *Hub) Run(ctx context.Context) {
 			log.Printf("WebSocket 客户端已连接: %s. 当前客户端数量: %d", client.RemoteAddr(), len(h.clients))
 			h.mu.Unlock()
 
-			// 新客户端连接时，发送所有历史日志
-			// 注意：这可能会发送大量数据，对于非常大的缓冲区可能需要优化
-			// 或者前端只请求最近的N条，然后开始实时接收
+			// 优化：新客户端连接时，只发送最近的 10 条日志而非所有日志
+			// 这样可以避免一次性发送大量数据导致前端卡顿
 			if globalBuffer != nil {
-				// 发送历史日志时，最好逐条发送，避免单条消息过大
-				// 并且前端需要能处理这种初始批量数据
 				rawLogLines := globalBuffer.GetRawEntriesBytes()
-				for _, lineBytes := range rawLogLines {
-					err := client.WriteMessage(websocket.TextMessage, lineBytes)
+				// 只发送最后 10 条日志
+				startIdx := len(rawLogLines) - 10
+				if startIdx < 0 {
+					startIdx = 0
+				}
+				for i := startIdx; i < len(rawLogLines); i++ {
+					err := client.WriteMessage(websocket.TextMessage, rawLogLines[i])
 					if err != nil {
 						log.Printf("错误: 发送历史日志到新客户端 %s 失败: %v", client.RemoteAddr(), err)
 						// 如果发送失败，可能客户端已经断开，进行清理
@@ -83,18 +85,14 @@ func (h *Hub) Run(ctx context.Context) {
 			}
 			h.mu.Unlock()
 
-		case message := <-h.broadcast: // 从 RingBuffer 的 Write 方法接收到广播请求
+		case message := <-h.broadcast: // 这个分支通常不会再被使用，保留以防万一
 			h.mu.Lock()
 			for client := range h.clients {
 				err := client.WriteMessage(websocket.TextMessage, message)
 				if err != nil {
 					log.Printf("错误: 广播日志到客户端 %s 失败: %v. 将其移除。", client.RemoteAddr(), err)
-					// 如果写入失败，说明客户端可能已断开，从map中移除并关闭连接
-					// 需要在 goroutine 中处理，避免阻塞广播循环
-					// 或者直接在这里处理，但要注意 unregister channel 的使用
-					// 为简单起见，直接删除并关闭
 					delete(h.clients, client)
-					client.Close() // 确保关闭
+					client.Close()
 				}
 			}
 			h.mu.Unlock()
@@ -102,19 +100,13 @@ func (h *Hub) Run(ctx context.Context) {
 	}
 }
 
-// Broadcast 将消息发送到广播通道，由 Hub 的 Run 方法处理。
-// 这个方法被 RingBuffer 的 Write 方法调用。
+// Broadcast 已弃用，不再使用。
+// 之前频繁调用此方法导致大量系统调用和GDI泄漏。
+// 现在日志只在客户端首次连接时发送历史日志。
+// 如果需要实时日志推送，可以由前端定时拉取或实现其他机制。
 func (h *Hub) Broadcast(message []byte) {
-	// 使用非阻塞发送，以防 Run 循环处理不及时导致日志写入阻塞
-	// 但如果 broadcast channel 满了，日志会丢失。
-	// 对于日志广播，通常我们不希望它阻塞日志记录本身。
-	// 或者，可以稍微增大 broadcast channel 的缓冲区。
-	select {
-	case h.broadcast <- message:
-	default:
-		// log.Println("警告: WebSocket广播通道已满，部分日志可能未实时推送。")
-		// 这个警告可能会产生大量日志，所以通常会注释掉或用更智能的方式处理
-	}
+	// 空实现，不做任何事情
+	// 这避免了之前每条日志都导致的系统调用
 }
 
 // RegisterClient 用于从外部（例如HTTP WebSocket处理器）注册客户端。

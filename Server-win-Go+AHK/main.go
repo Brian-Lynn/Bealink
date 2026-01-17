@@ -28,7 +28,6 @@ import (
 )
 
 const (
-	lightIconFileName      = "assets/light.ico"
 	darkIconFileName       = "assets/dark.ico"
 	WM_POWERBROADCAST      = 0x0218
 	PBT_APMRESUMEAUTOMATIC = 0x0012
@@ -199,33 +198,9 @@ func loadIconBytes(fileName string) []byte {
 	return iconBytes
 }
 
-// getIconFileName 根据系统主题返回对应的图标文件名
+// getIconFileName 返回深色图标文件名（始终使用深色）
 func getIconFileName() string {
-	if runtime.GOOS != "windows" {
-		// 非 Windows 系统默认使用浅色图标
-		return lightIconFileName
-	}
-	isDark, err := winapi.IsDarkMode()
-	if err != nil {
-		log.Printf("警告: 检测系统主题失败: %v，使用默认浅色图标", err)
-		return lightIconFileName
-	}
-	if isDark {
-		return darkIconFileName
-	}
-	return lightIconFileName
-}
-
-// updateTrayIcon 根据系统主题更新托盘图标
-func updateTrayIcon() {
-	iconFileName := getIconFileName()
-	iconBytes := loadIconBytes(iconFileName)
-	if iconBytes != nil {
-		systray.SetIcon(iconBytes)
-		log.Printf("托盘图标已更新: %s", iconFileName)
-	} else {
-		log.Printf("警告: 无法加载图标文件: %s", iconFileName)
-	}
+	return darkIconFileName
 }
 func openBrowser(url string) error { /* ... (代码同前) ... */
 	var cmd *exec.Cmd
@@ -318,7 +293,10 @@ func onReady() {
 	actualServerAddr, usedAlternativePort, errServerStart = server.Start(coreServiceCtx, preferredPorts, logging.GetHub())
 	if errServerStart != nil {
 		log.Fatalf("!!! 致命错误: HTTP服务启动失败: %v。", errServerStart)
-		updateTrayIcon()
+		iconBytes := loadIconBytes(darkIconFileName)
+		if iconBytes != nil {
+			systray.SetIcon(iconBytes)
+		}
 		systray.SetTitle("Bealink Go - 错误")
 		systray.SetTooltip(fmt.Sprintf("服务启动失败: %v", errServerStart))
 		mErrItem := systray.AddMenuItem(fmt.Sprintf("错误: %v", errServerStart), "服务无法启动")
@@ -330,7 +308,10 @@ func onReady() {
 	if usedAlternativePort {
 		log.Printf("服务已在备用地址 %s 上启动。", actualServerAddr)
 	}
-	updateTrayIcon()
+	iconBytes := loadIconBytes(darkIconFileName)
+	if iconBytes != nil {
+		systray.SetIcon(iconBytes)
+	}
 	systray.SetTitle("Bealink Go 服务")
 	systray.SetTooltip(fmt.Sprintf("Bealink Go (监听于 %s)", actualServerAddr))
 	mSettings := systray.AddMenuItem("设置", "打开程序设置页面")
@@ -346,28 +327,6 @@ func onReady() {
 	mQuit := systray.AddMenuItem("退出", "关闭服务")
 
 	go func() { time.Sleep(2 * time.Second); bark.NotifyEvent("system_ready") }() // <--- 统一事件名
-
-	// 启动主题监听，定期检查系统主题变化并更新图标
-	if runtime.GOOS == "windows" {
-		go func() {
-			ticker := time.NewTicker(5 * time.Second) // 每5秒检查一次主题
-			defer ticker.Stop()
-			lastTheme := getIconFileName()
-			for {
-				select {
-				case <-ticker.C:
-					currentTheme := getIconFileName()
-					if currentTheme != lastTheme {
-						log.Println("检测到系统主题变化，更新托盘图标...")
-						updateTrayIcon()
-						lastTheme = currentTheme
-					}
-				case <-coreServiceCtx.Done():
-					return
-				}
-			}
-		}()
-	}
 
 	if runtime.GOOS == "windows" {
 		hInst, _, errHInst := kernel32DLL.NewProc("GetModuleHandleW").Call(0)

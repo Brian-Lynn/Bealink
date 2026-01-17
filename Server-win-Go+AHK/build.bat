@@ -12,7 +12,7 @@ if %errorlevel% neq 0 (
 
 REM 生成资源文件
 echo 正在生成资源文件...
-rsrc -ico assets\light.ico -manifest app.manifest -o rsrc.syso
+rsrc -ico assets\dark.ico -manifest app.manifest -o rsrc.syso
 if %errorlevel% neq 0 (
     echo 错误: 生成资源文件失败
     pause

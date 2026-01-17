@@ -17,11 +17,12 @@ type LogEntry struct {
 
 // RingBuffer 是一个线程安全的环形日志缓冲区
 type RingBuffer struct {
-	mu      sync.Mutex
-	entries []LogEntry
-	maxSize int
-	head    int  // 指向下一个写入位置
-	full    bool // 缓冲区是否已满（即已发生覆盖）
+	mu              sync.Mutex
+	entries         []LogEntry
+	maxSize         int
+	head            int  // 指向下一个写入位置
+	full            bool // 缓冲区是否已满（即已发生覆盖）
+	lastBroadcasted int  // 上一次广播的位置，用于增量广播
 }
 
 // NewRingBuffer 创建一个新的环形缓冲区
@@ -37,6 +38,7 @@ func NewRingBuffer(size int) *RingBuffer {
 
 // Write 实现 io.Writer 接口，将日志写入缓冲区
 // 日志只存储在内存中的环形缓冲区，并通过 WebSocket hub 广播到 HTML 界面
+// 改进：不再每条日志都立即广播，而是由前端主动拉取或通过定时批量更新
 func (rb *RingBuffer) Write(p []byte) (n int, err error) {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
@@ -55,11 +57,10 @@ func (rb *RingBuffer) Write(p []byte) (n int, err error) {
 		rb.full = true
 	}
 
-	// 3. 通过 WebSocket hub 广播 (如果 hub 存在)
-	if globalHub != nil {
-		// globalHub.Broadcast(entry) // 直接广播原始字节 p 可能更高效
-		globalHub.Broadcast(p) // 广播原始字节，前端可以决定如何解析或直接显示
-	}
+	// 不再直接广播每条日志，而是存储在缓冲区中
+	// 前端可以通过WebSocket连接时的历史日志获取，新客户端连接时会收到所有历史日志
+	// 这样避免频繁的Broadcast导致系统调用过多
+	// 如果需要实时推送，可以由Hub定时通过一个时间间隔来聚合并广播新日志
 
 	return len(p), nil
 }

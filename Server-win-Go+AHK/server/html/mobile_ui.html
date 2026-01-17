@@ -160,6 +160,47 @@
             background: rgba(0,122,255,0.12); transition: width linear;
         }
         .tile > * { z-index: 1; }
+
+        /* 模态框样式 */
+        .modal-backdrop {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.4); z-index: 100; animation: fadeIn 0.2s ease-out;
+        }
+        .modal-backdrop.show { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .modal {
+            display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: var(--card); border-radius: 20px; padding: 24px; max-width: 90%; width: 320px;
+            z-index: 101; animation: popIn 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+        .modal.show { display: block; }
+        @keyframes popIn {
+            from { transform: translate(-50%, -50%) scale(0.9); opacity: 0; }
+            to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+
+        .modal-header { font-size: 18px; font-weight: 700; margin-bottom: 16px; text-align: center; }
+        .modal-content {
+            background: var(--track); border-radius: 12px; padding: 16px;
+            margin-bottom: 20px; max-height: 40vh; overflow-y: auto; word-break: break-all;
+            font-size: 14px; line-height: 1.5; color: var(--text);
+        }
+
+        .modal-buttons { display: flex; gap: 12px; }
+        .modal-btn {
+            flex: 1; padding: 12px 16px; border: none; border-radius: 12px;
+            font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .modal-btn-primary {
+            background: var(--accent); color: white; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+        }
+        .modal-btn-primary:active { transform: scale(0.95); opacity: 0.8; }
+        .modal-btn-secondary {
+            background: var(--track); color: var(--text);
+        }
+        .modal-btn-secondary:active { background: rgba(0, 0, 0, 0.1); }
     </style>
 </head>
 <body>
@@ -185,6 +226,7 @@
             </button>
             <button class="btn btn-play" id="playBtn" onclick="api('/media/play')">
                 <!-- 同时展示播放与暂停图标（多功能按钮），前端不再根据状态切换 -->
+                
                 <svg viewBox="0 0 24 24" style="margin-right:6px"><path d="M8 5v14l11-7z"/></svg>
                 <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
             </button>
@@ -232,11 +274,26 @@
             <span class="tile-icon">⭕</span>
             <span>关机</span>
         </div>
+        <div class="tile" id="pullClipTile" onclick="pullClipboard()">
+            <span class="tile-icon">📋</span>
+            <span>拉取剪切板</span>
+        </div>
     </div>
 
     <div class="upload">
         📤 点击上传图片到剪贴板
         <input type="file" accept="image/*" onchange="uploadImage(this)">
+    </div>
+
+    <!-- 拉取剪切板弹窗 -->
+    <div class="modal-backdrop" id="clipboardModal"></div>
+    <div class="modal" id="clipboardContent">
+        <div class="modal-header">电脑剪切板内容</div>
+        <div class="modal-content" id="clipboardText"></div>
+        <div class="modal-buttons">
+            <button class="modal-btn modal-btn-secondary" onclick="closeClipboardModal()">取消</button>
+            <button class="modal-btn modal-btn-primary" onclick="confirmCopyClipboard()">确认复制</button>
+        </div>
     </div>
 
     <script>
@@ -275,10 +332,14 @@
             updateRangeBackground(el);
         }
 
-        // 拖拽结束：立即发送，延迟 500ms 恢复轮询（等待服务器生效）
+        // 拖拽结束：立即发送，然后查询一次音量（确保 UI 同步）
         function onVolChange(el) {
             fetch('/volume/set?val=' + el.value);
-            setTimeout(() => { isDragging = false; }, 500);
+            setTimeout(() => { 
+                isDragging = false;
+                // 拖拽完成后查询一次音量，确保 UI 显示的是实际值
+                fetchVolumeWithRetry(2, 200);
+            }, 500);
             updateRangeBackground(el);
         }
 
@@ -312,6 +373,93 @@
             await fetch('/upload/image', { method: 'POST', body: data });
             el.value = '';
             alert('图片已发送');
+        }
+
+        // 存储当前剪切板内容（用于确认复制时使用）
+        let currentClipboardData = '';
+
+        // 第一步：拉取剪切板内容，弹出模态框
+        async function pullClipboard() {
+            try {
+                const resp = await fetch('/getclip', { cache: 'no-store' });
+                if (!resp.ok) throw new Error('获取剪切板失败: ' + resp.status);
+                const text = await resp.text();
+                if (!text) { alert('剪切板为空或非文本内容'); return; }
+                
+                // 保存内容并显示模态框
+                currentClipboardData = text;
+                showClipboardModal(text);
+            } catch (err) {
+                alert('拉取剪切板失败: ' + err.message);
+            }
+        }
+
+        // 显示模态框
+        function showClipboardModal(text) {
+            document.getElementById('clipboardText').innerText = text;
+            document.getElementById('clipboardModal').classList.add('show');
+            document.getElementById('clipboardContent').classList.add('show');
+        }
+
+        // 关闭模态框
+        function closeClipboardModal() {
+            document.getElementById('clipboardModal').classList.remove('show');
+            document.getElementById('clipboardContent').classList.remove('show');
+            currentClipboardData = '';
+        }
+
+        // 第二步：用户点击"确认复制"，此时数据已在本地，复制是同步的
+        function confirmCopyClipboard() {
+            const text = currentClipboardData;
+            let success = false;
+
+            // 方案 1：尝试现代 Clipboard API（同步调用，不 await）
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).catch(() => {
+                    // 如果失败，尝试备选方案（在这个回调中已经离开用户激活栈，所以会失败，但不要紧）
+                    tryFallbackCopy(text);
+                });
+                success = true;
+            } else {
+                // 直接使用备选方案
+                success = tryFallbackCopy(text);
+            }
+
+            if (success) {
+                // 显示成功提示
+                const contentDiv = document.getElementById('clipboardText');
+                const originalText = contentDiv.innerText;
+                contentDiv.style.color = '#34c759';
+                contentDiv.innerText = '✓ 复制成功！';
+                setTimeout(() => {
+                    closeClipboardModal();
+                }, 600);
+            }
+        }
+
+        // 备选方案：使用 readonly textarea + execCommand（同步执行，符合浏览器要求）
+        function tryFallbackCopy(text) {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                ta.style.top = '-9999px';
+                document.body.appendChild(ta);
+                ta.focus();
+                if (typeof ta.setSelectionRange === 'function') {
+                    ta.setSelectionRange(0, 9999);
+                } else {
+                    ta.select();
+                }
+                const ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+                return ok;
+            } catch (e) {
+                console.error('Fallback copy failed:', e);
+                return false;
+            }
         }
 
         // 更新设备在线状态显示
@@ -352,18 +500,17 @@
                         clearTimeout(wsReconnectTimer);
                         wsReconnectTimer = null;
                     }
+                    // 停止 HTTP 轮询（因为 WebSocket 已连接）
+                    stopHttpVolumePoll();
                     // 启动心跳检测
                     startHeartbeat();
                 };
                 
                 wsSocket.onmessage = function(event) {
-                    // 收到消息说明连接正常，设备在线
+                    // 收到消息说明连接正常，只更新时间戳，避免频繁 DOM 操作
                     lastPongTime = Date.now();
                     consecutiveFailures = 0;
-                    if (!deviceOnline) {
-                        updateDeviceStatus(true);
-                    }
-                    // 这里可以处理日志消息，但主界面不需要显示日志
+                    // 设备在线状态由 onopen 和心跳检测维护，不在消息处理中更新
                 };
                 
                 wsSocket.onclose = function(event) {
@@ -372,6 +519,8 @@
                     stopHeartbeat();
                     // WebSocket 断开，立即标记为离线
                     updateDeviceStatus(false);
+                    // 启动 HTTP 轮询作为备用检测方式
+                    startHttpVolumePoll();
                     // 尝试重连
                     if (wsReconnectTimer) {
                         clearTimeout(wsReconnectTimer);
@@ -384,11 +533,15 @@
                     stopHeartbeat();
                     // WebSocket 错误，标记为离线
                     updateDeviceStatus(false);
+                    // 启动 HTTP 轮询作为备用
+                    startHttpVolumePoll();
                 };
             } catch (e) {
                 console.error('创建 WebSocket 连接失败:', e);
                 stopHeartbeat();
                 updateDeviceStatus(false);
+                // 启动 HTTP 轮询作为备用
+                startHttpVolumePoll();
                 // 尝试重连
                 if (wsReconnectTimer) {
                     clearTimeout(wsReconnectTimer);
@@ -450,109 +603,79 @@
             }
         }
 
-        // 获取音量信息并更新UI（作为 WebSocket 的备用检测方式）
-        function fetchVolume() {
-            if (isDragging) return;
-            // 如果 WebSocket 已连接，主要依赖 WebSocket 状态，HTTP 轮询作为备用
-            if (wsSocket && wsSocket.readyState === WebSocket.OPEN) {
-                // WebSocket 已连接，只更新音量，不用于在线状态检测
-                fetch('/volume/info', { 
-                    method: 'GET',
-                    signal: AbortSignal.timeout(2000) // 2秒超时
-                })
-                    .then(r => {
-                        if (!r.ok) {
-                            throw new Error(`HTTP ${r.status}`);
-                        }
-                        return r.json();
-                    })
-                    .then(vInfo => {
-                        const slider = document.getElementById('volSlider');
-                        const volPercent = document.getElementById('volPercent');
-                        if (slider && vInfo.volume !== undefined) {
-                            const vol = Math.round(vInfo.volume);
-                            slider.value = vol;
-                            updateRangeBackground(slider);
-                            if (volPercent) {
-                                volPercent.textContent = vol + '%';
-                            }
-                        }
-                    })
-                    .catch(e => {
-                        // HTTP 失败不影响在线状态（因为 WebSocket 已连接）
-                        console.log('fetchVolume err (WebSocket已连接，忽略)', e);
-                    });
-            } else {
-                // WebSocket 未连接，使用 HTTP 轮询作为在线状态检测
+        // 获取音量信息并更新UI（支持重试机制）
+        async function fetchVolumeWithRetry(maxRetries, retryDelay) {
+            if (!maxRetries) maxRetries = 3;
+            if (!retryDelay) retryDelay = 200;
+            
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2秒超时
-                    
-                    fetch('/volume/info', { 
+                    const response = await fetch('/volume/info', { 
                         method: 'GET',
-                        signal: controller.signal
-                    })
-                        .then(r => {
-                            clearTimeout(timeoutId);
-                            if (!r.ok) {
-                                throw new Error(`HTTP ${r.status}`);
-                            }
-                            return r.json();
-                        })
-                        .then(vInfo => {
-                            // 成功获取到响应，设备在线
-                            consecutiveFailures = 0;
-                            if (!deviceOnline) {
-                                updateDeviceStatus(true);
-                            }
-                            
-                            const slider = document.getElementById('volSlider');
-                            const volPercent = document.getElementById('volPercent');
-                            if (slider && vInfo.volume !== undefined) {
-                                const vol = Math.round(vInfo.volume);
-                                slider.value = vol;
-                                updateRangeBackground(slider);
-                                if (volPercent) {
-                                    volPercent.textContent = vol + '%';
-                                }
-                            }
-                        })
-                        .catch(e => {
-                            clearTimeout(timeoutId);
-                            console.log('fetchVolume err', e);
-                            consecutiveFailures++;
-                            // 连续失败达到阈值，标记为离线
-                            if (consecutiveFailures >= MAX_FAILURES) {
-                                updateDeviceStatus(false);
-                            }
-                        });
+                        signal: AbortSignal.timeout(2000)
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    
+                    const vInfo = await response.json();
+                    const slider = document.getElementById('volSlider');
+                    const volPercent = document.getElementById('volPercent');
+                    if (slider && vInfo.volume !== undefined) {
+                        const vol = Math.round(vInfo.volume);
+                        slider.value = vol;
+                        updateRangeBackground(slider);
+                        if (volPercent) {
+                            volPercent.textContent = vol + '%';
+                        }
+                    }
+                    console.log('音量查询成功 (尝试 ' + attempt + '/' + maxRetries + '): ' + vInfo.volume + '%');
+                    return true;
                 } catch (e) {
-                    console.log('fetchVolume err', e);
-                    consecutiveFailures++;
-                    if (consecutiveFailures >= MAX_FAILURES) {
-                        updateDeviceStatus(false);
+                    console.log('音量查询失败 (尝试 ' + attempt + '/' + maxRetries + '):', e.message);
+                    if (attempt < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, retryDelay));
                     }
                 }
             }
+            console.log('音量查询最终失败');
+            return false;
         }
 
-        // 启动设备连接和音量轮询（每500ms一次）
+        // 启动设备连接（仅连接 WebSocket，不再进行定时音量轮询）
         function startVolumePolling() {
-            if (volumePollInterval) return; // 已经启动
-            // 先连接 WebSocket（主要检测方式）
+            if (volumePollInterval) return;
             connectWebSocket();
-            // 然后启动 HTTP 轮询（备用检测方式和音量更新）
-            fetchVolume(); // 立即获取一次
-            volumePollInterval = setInterval(fetchVolume, 500);
+            fetchVolumeWithRetry(3, 200);
         }
 
-        // 停止音量轮询和 WebSocket
+        // 停止设备连接
         function stopVolumePolling() {
             if (volumePollInterval) {
                 clearInterval(volumePollInterval);
                 volumePollInterval = null;
             }
             closeWebSocket();
+        }
+
+        // 启动音量轮询（仅当 WebSocket 不可用时）
+        function startHttpVolumePoll() {
+            if (volumePollInterval || (wsSocket && wsSocket.readyState === 1)) {
+                return;
+            }
+            fetchVolumeWithRetry(3, 200);
+            volumePollInterval = setInterval(function() {
+                fetchVolumeWithRetry(3, 200);
+            }, 1000);
+        }
+
+        // 停止 HTTP 轮询
+        function stopHttpVolumePoll() {
+            if (volumePollInterval) {
+                clearInterval(volumePollInterval);
+                volumePollInterval = null;
+            }
         }
 
         // 启动

@@ -20,7 +20,7 @@ $env:PATH += ";$env:USERPROFILE\go\bin"
 
 # 生成资源文件
 Write-Host "正在生成资源文件..." -ForegroundColor Yellow
-rsrc -ico assets\light.ico -manifest app.manifest -o rsrc.syso
+rsrc -ico assets\dark.ico -manifest app.manifest -o rsrc.syso
 if ($LASTEXITCODE -ne 0) {
     Write-Host "错误: 生成资源文件失败" -ForegroundColor Red
     exit 1
