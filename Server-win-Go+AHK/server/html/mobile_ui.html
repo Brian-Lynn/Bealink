@@ -57,10 +57,10 @@
     <style>
         :root {
             --bg: #f2f2f7; --card: #fff; --text: #000; --sub: #8e8e93;
-            --accent: #007aff; --track: #e5e5ea; --danger: #ff3b30;
+            --accent: #007aff; --track: #e5e5ea; --danger: #ff3b30; --input-bg: #eff1f5;
         }
         @media (prefers-color-scheme: dark) {
-            :root { --bg: #000; --card: #1c1c1e; --text: #fff; --sub: #98989d; --track: #2c2c2e; }
+            :root { --bg: #000; --card: #1c1c1e; --text: #fff; --sub: #98989d; --track: #2c2c2e; --input-bg: #2c2c2e; }
         }
         
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
@@ -123,18 +123,43 @@
         input[type=range]::-moz-range-thumb { height: 20px; width: 20px; border-radius: 50%; background: var(--card); box-shadow: 0 2px 6px rgba(0,0,0,0.18); }
 
         /* 文本输入 (IM 风格) */
-        .input-area { display: flex; gap: 10px; align-items: center; }
+        .input-area { 
+            display: flex; 
+            gap: 10px; 
+            align-items: stretch;
+        }
+        .input-area textarea {
+            flex: 1;
+        }
+        .input-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 50px;
+        }
         textarea {
-            flex: 1; min-height: 64px; max-height: 30vh; border: none; background: var(--track); border-radius: 18px;
+            min-height: 100px; max-height: 40vh; border: none; background: var(--track); border-radius: 18px;
             padding: 12px 16px; font-size: 16px; color: var(--text); resize: none; font-family: inherit; overflow: auto;
             line-height: 1.4;
         }
         textarea:focus { outline: none; background: rgba(142,142,147, 0.15); }
-        .send-btn {
-            width: 50px; height: 50px; border-radius: 50%; background: var(--accent);
-            color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,122,255,0.3);
+        .send-btn, .clip-btn {
+            width: 50px; height: 50px; border-radius: 12px; border: none;
+            color: white; display: flex; align-items: center; justify-content: center; 
+            box-shadow: 0 4px 10px rgba(0,122,255,0.3);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 20px;
+            font-weight: bold;
         }
-        .send-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.5; }
+        .send-btn {
+            background: var(--accent);
+        }
+        .send-btn:active { transform: scale(0.95); opacity: 0.8; }
+        .clip-btn {
+            background: #34c759;
+        }
+        .clip-btn:active { transform: scale(0.95); opacity: 0.8; }
 
         /* 底部功能网格 */
         .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -251,12 +276,26 @@
     </div>
 
     <!-- 文本输入 -->
-    <div class="card" style="padding: 16px;">
-        <div class="input-area">
-            <textarea id="txt" placeholder="发送文字..."></textarea>
-            <button class="send-btn" onclick="sendText()">
-                <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-            </button>
+    <div class="card" style="padding: 20px;">
+        <div style="display: flex; align-items: stretch; height: 110px; gap: 10px; margin-top: 10px;">
+            
+            <textarea id="txt" placeholder="输入文字发送或是复制..." 
+                style="flex: 1; border: none; border-radius: 14px; padding: 12px; background: var(--input-bg); color: var(--text); resize: none; font-size: 16px; font-family: inherit; outline: none; box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);"></textarea>
+
+            <div style="width: 64px; display: flex; flex-direction: column; gap: 8px;">
+                
+                <button onclick="sendText()" style="flex: 1; border: none; border-radius: 12px; background: #007AFF; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,122,255,0.3); transition: transform 0.1s;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                </button>
+
+                <button onclick="sendToClipboard()" style="flex: 1; border: none; border-radius: 12px; background: #34C759; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(52,199,89,0.3); transition: transform 0.1s;">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                    </svg>
+                </button>
+                
+            </div>
         </div>
     </div>
 
@@ -362,6 +401,29 @@
                 body: 'text=' + encodeURIComponent(el.value)
             });
             el.value = '';
+        }
+
+        // 文本发送到电脑剪切板
+        async function sendToClipboard() {
+            const el = document.getElementById('txt');
+            if(!el.value) {
+                alert('请先输入文字');
+                return;
+            }
+            try {
+                const response = await fetch('/clip', {
+                    method: 'POST',
+                    body: el.value
+                });
+                if (response.ok) {
+                    alert('已复制到电脑剪切板');
+                    el.value = '';
+                } else {
+                    alert('复制失败');
+                }
+            } catch (err) {
+                alert('发送失败: ' + err.message);
+            }
         }
 
         // 图片上传
